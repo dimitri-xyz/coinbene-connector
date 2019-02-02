@@ -1,0 +1,48 @@
+name:                coinbene-connector
+version:             1.0.0.0
+synopsis:            A library to connect our Functional Reactive Bitcoin Trader to CoinBene
+description:         Please see README.md
+homepage:            https://github.com/dimitri-xyz/coinbene-connector#readme
+author:              Dimitri DeFigueiredo
+maintainer:          github@dimitri.xyz
+copyright:           2019 CoinBene Brasil
+category:            finance
+build-type:          Simple
+extra-source-files:  README.md
+extra-doc-files:
+
+cabal-version:       >=1.20
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Coinbene.Adapter
+                     , Coinbene.Executor
+
+  default-language:    Haskell2010
+  build-depends:       base
+                     , pipes-concurrency
+                     , razao-base
+                     , bytestring
+                     , unordered-containers
+                     , hashable
+                     , mtl
+
+test-suite test-coinbene-connector
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Test.hs
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+  build-depends:       base
+                     , coinbene-connector
+                     , pipes-concurrency
+                     , reactive-banana >= 1.1.0.1
+                     , razao-base
+                     , tasty
+                     , tasty-hunit
+                     , stm
+                     , unordered-containers
+
+source-repository head
+  type:     git
+  location: https://github.com/dimitri-xyz/coinbene-connector

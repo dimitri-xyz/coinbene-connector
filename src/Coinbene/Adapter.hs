@@ -1,0 +1,2 @@
+module Coinbene.Adapter where
+
