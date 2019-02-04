@@ -1,6 +1,8 @@
 packages:
 - '.'
-# - 'dep/market-model'
+- 'dep/coinbene-api'
+- 'dep/market-model'
+
 
 - location:
     git: https://github.com/dimitri-xyz/razao-base

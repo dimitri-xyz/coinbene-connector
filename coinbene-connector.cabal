@@ -26,6 +26,7 @@ library
                      , unordered-containers
                      , hashable
                      , mtl
+                     , coinbene-api
 
 test-suite test-coinbene-connector
   type:                exitcode-stdio-1.0
@@ -42,6 +43,7 @@ test-suite test-coinbene-connector
                      , tasty-hunit
                      , stm
                      , unordered-containers
+                     , coinbene-api
 
 source-repository head
   type:     git
