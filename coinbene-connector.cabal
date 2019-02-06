@@ -17,11 +17,14 @@ library
   hs-source-dirs:      src
   exposed-modules:     Coinbene.Adapter
                      , Coinbene.Executor
+                     , Coinbene.Producer
+                     , Coinbene.Connector
 
   default-language:    Haskell2010
   build-depends:       base
                      , pipes-concurrency
                      , razao-base
+                     , market-interface
                      , bytestring
                      , unordered-containers
                      , hashable
@@ -37,7 +40,7 @@ test-suite test-coinbene-connector
   build-depends:       base
                      , coinbene-connector
                      , pipes-concurrency
-                     , reactive-banana >= 1.1.0.1
+                    --  , reactive-banana >= 1.1.0.1
                      , razao-base
                      , tasty
                      , tasty-hunit

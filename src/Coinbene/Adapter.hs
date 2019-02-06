@@ -2,6 +2,17 @@ module Coinbene.Adapter where
 
 import Coinbene
 
+import Market.Interface
+
+-- XI ME! Here should these be?
+type Producer p v q c = IO ()
+type Executor p v     = Action p v -> IO ()
+type Terminator       = IO ()
+
+-- FIX ME! Not adding dependency on Reactive.Banana for now, so we need this.
+type Handler a = a -> IO()
+
+
 -- class Exchange config m where
 --     placeLimit    :: (HTTP m, MonadTime m, Coin p, Coin v) => config -> OrderSide -> Price p -> Vol v -> m OrderID
 --     getBook       :: (HTTP m, MonadTime m, Coin p, Coin v) => config -> Proxy (Price p) -> Proxy (Vol v) -> m (QuoteBook p v)
