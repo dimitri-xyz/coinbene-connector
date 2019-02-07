@@ -1,33 +1,113 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE UndecidableInstances  #-}
 
 module Main where
 
 import           Data.Proxy
+import           Control.Monad.State
+import           Control.Monad.Time
 
 import           Test.Tasty
 import           Test.Tasty.HUnit
 
 -- import           Reactive.Banana.Frameworks
 
+import           Market.Interface
 import           Coinbene.Adapter
 import           Coinbene.Executor
 
-import {- qualified -}  Coinbene -- as C
+import           Market.Coins (BTC(..), USD(..), BRL(..))
+
+import qualified Coinbene as C
 
 
 --------------------------------------------------------------------------------
 main :: IO ()
-main = defaultMain $ tests (Proxy :: Proxy (Price BTC)) (Proxy :: Proxy (Vol USDT))
+main = defaultMain $ tests (Proxy :: Proxy (Price BRL)) (Proxy :: Proxy (Vol BTC))
 --------------------------------------------------------------------------------
 
-tests :: forall p v q c. (Coin p, Coin v) => Proxy (Price p) -> Proxy (Vol v) -> TestTree
+-- tests :: forall p v q c. (Coin p, Coin v) => Proxy (Price p) -> Proxy (Vol v) -> TestTree
+tests :: forall p v q c p' v'. (Coin p, Coin v, C.Coin p', C.Coin v', (ToFromCB p p'), (ToFromCB v v')) 
+      => Proxy (Price p) -> Proxy (Vol v) -> TestTree
 tests _ _ = testGroup " Coinbene Connector Tests"
-    [ testCase "Executor test" $ do
-        return () 
+    [ testCase "Executor - PlaceLimit test" $ do
+        r <- executor (Proxy :: Proxy IO)
+            undefined
+            undefined
+            undefined
+            (PlaceLimit Ask (Price 9000 :: Price p) (Vol 0.05 :: Vol v) Nothing)
+        print r
+
+
+
+        -- :: Executor TimedLogger p v 
         -- outputPairs <- interpret (selfUpdateState (copyBookStrategy 5) emptyState) (copyInEs :: [Maybe(TradingEv p v q c)])
         -- let outputActions = fmap fst <$> outputPairs
         -- assertEqual "Output list does not match" copyExpoOKAs (fmap removeReasoning <$> outputActions)
     ]
+
+-- executor _proxy _config _state _handler action = return undefined
+
+-- data Action price vol
+--     = PlaceLimit
+--         { aSide  :: OrderSide
+--         , aPrice :: Price price
+--         , aVol   :: Vol   vol
+--         , amCOID :: Maybe ClientOID }
+--     | CancelLimit
+--         { aCOID  :: ClientOID }
+
+--------------------------------------------------------------------------------
+-- data CoinbeneMockConfig = CoinbeneMockConfig
+
+
+-- class Monad m => MonadTime m where
+--   currentTime :: m UTCTime
+
+-- class Monad m => HTTP m where
+--     http :: Request -> Manager -> m (Response LBS.ByteString)
+
+-----------------------------------------
+-- instance HTTP IO where
+--     http = httpLbs
+
+-- instance MonadTime IO where
+--   currentTime = getCurrentTime
+
+newtype TestLog = TestLog Int
+type TimedLogger = State TestLog
+
+instance HTTP TimedLogger where
+    http = undefined
+
+instance MonadTime TimedLogger where
+    currentTime = undefined
+
+instance IntoIO TimedLogger where
+    intoIO ma = return $ evalState ma (TestLog 0)
+
+
+
+-- class Exchange config m where
+--     placeLimit    :: (HTTP m, MonadTime m, Coin p, Coin v) => config -> OrderSide -> Price p -> Vol v -> m OrderID
+--     getBook       :: (HTTP m, MonadTime m, Coin p, Coin v) => config -> Proxy (Price p) -> Proxy (Vol v) -> m (QuoteBook p v)
+--     getOrderInfo  :: (HTTP m, MonadTime m) => config -> OrderID -> m OrderInfo
+--     cancel        :: (HTTP m, MonadTime m) => config -> OrderID -> m OrderID
+--     getOpenOrders :: (HTTP m, MonadTime m, Coin p, Coin v) => config -> Proxy (Price p) -> Proxy (Vol v) -> m [OrderInfo]
+--     getBalances   :: (HTTP m, MonadTime m) => config            -> m [BalanceInfo]
+--     getTrades     :: (HTTP m, MonadTime m, Coin p, Coin v) => config -> Proxy (Price p) -> Proxy (Vol v) -> m [Trade p v]
+
+instance C.Exchange Coinbene TimedLogger where
+    placeLimit    = return undefined
+    getBook       = return undefined
+    getOrderInfo  = return undefined
+    cancel        = return undefined
+    getOpenOrders = return undefined
+    getBalances   = return undefined
+    getTrades     = return undefined
+
 
 -- {-# LANGUAGE ScopedTypeVariables #-}
 

@@ -1,16 +1,74 @@
-module Coinbene.Adapter where
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE UndecidableInstances   #-}
 
-import Coinbene
+module Coinbene.Adapter
+    ( module Coinbene.Adapter
+    , C.Coinbene(..)
+    , C.HTTP
+    , C.http
+    ) where
 
-import Market.Interface
+import           Data.Hashable
+import           Control.Monad.Time
 
--- XI ME! Here should these be?
-type Producer p v q c = IO ()
-type Executor p v     = Action p v -> IO ()
-type Terminator       = IO ()
+import qualified Coinbene as C
+import           Market.Interface
+import           Market.Coins
 
--- FIX ME! Not adding dependency on Reactive.Banana for now, so we need this.
+---------------------------------------
+type Producer   p v q c = IO ()
+type Executor   p v     = Action p v -> IO ()
+type Terminator         = IO ()
+
+class Monad m => IntoIO m where
+    intoIO :: m a -> IO a
+
+instance IntoIO IO where
+    intoIO = id
+---------------------------------------
+
+-- I am Not adding a dependency on reactive-banana, so we need this:
 type Handler a = a -> IO()
+
+
+--------------------------------------------------------------------------------
+class ToFromCB a b | a -> b, b -> a where
+    toCB   :: a -> b
+    fromCB :: b -> a
+
+----------
+instance ToFromCB OrderSide C.OrderSide where
+    toCB Ask = C.Ask
+    toCB Bid = C.Bid
+
+    fromCB C.Ask = Ask
+    fromCB C.Bid = Bid
+
+instance ToFromCB a b => ToFromCB (Price a) (C.Price b) where
+    toCB   (Price a)   = C.Price (toCB a)
+    fromCB (C.Price b) = Price (fromCB b)
+
+instance ToFromCB a b => ToFromCB (Vol a) (C.Vol b) where
+    toCB   (Vol a)   = C.Vol (toCB a)
+    fromCB (C.Vol b) = Vol (fromCB b)
+----------
+
+instance ToFromCB USD C.USDT where
+    toCB   a = realToFrac a
+    fromCB b = realToFrac b
+
+instance ToFromCB BRL C.BRL where
+    toCB   a = realToFrac a
+    fromCB b = realToFrac b
+
+instance ToFromCB BTC C.BTC where
+    toCB   a = realToFrac a
+    fromCB b = realToFrac b
+
+--------------------------------------------------------------------------------
+
+data CoinbeneState = CoinbeneState [(C.OrderID, Maybe ClientOID)]
 
 
 -- class Exchange config m where

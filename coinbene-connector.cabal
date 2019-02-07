@@ -29,7 +29,9 @@ library
                      , unordered-containers
                      , hashable
                      , mtl
+                     , monad-time
                      , coinbene-api
+                     , market-model
 
 test-suite test-coinbene-connector
   type:                exitcode-stdio-1.0
@@ -44,9 +46,13 @@ test-suite test-coinbene-connector
                      , razao-base
                      , tasty
                      , tasty-hunit
-                     , stm
+                    --  , stm
+                     , mtl
                      , unordered-containers
+                     , monad-time
                      , coinbene-api
+                     , market-interface
+                     , market-model
 
 source-repository head
   type:     git
