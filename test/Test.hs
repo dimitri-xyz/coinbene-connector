@@ -11,33 +11,66 @@ import           Control.Monad.Time
 
 import           Test.Tasty
 import           Test.Tasty.HUnit
+import           Test.Tasty.Options
 
--- import           Reactive.Banana.Frameworks
+import           Network.HTTP.Client          (newManager)
+import           Network.HTTP.Client.TLS      (tlsManagerSettings)
 
 import           Market.Interface
 import           Coinbene.Adapter
 import           Coinbene.Executor
 
-import           Market.Coins (BTC(..), USD(..), BRL(..))
+import           Market.Coins (BTC(..), USD(..), BRL(..), LTC(..))
 
 import qualified Coinbene as C
+import           Coinbene (API_ID(..), API_KEY(..))
 
+instance IsOption API_ID where
+    defaultValue = error "User must supply API ID (on command line or environment) for authenticated tests."
+    parseValue = Just . API_ID
+    optionName = return "API_ID"
+    optionHelp = return "Customer's API ID for Coinbene account (hex encoded)."
+
+instance IsOption API_KEY where
+    defaultValue = error "User must supply API secret key (on command line or environment) for authenticated tests."
+    parseValue = Just . API_KEY
+    optionName = return "API_KEY"
+    optionHelp = return "Customer's API secret key for Coinbene account (hex encoded)."
 
 --------------------------------------------------------------------------------
-main :: IO ()
-main = defaultMain $ tests (Proxy :: Proxy (Price BRL)) (Proxy :: Proxy (Vol BTC))
---------------------------------------------------------------------------------
+main = defaultMainWithIngredients ings $
+    askOption $ \apikey ->
+    askOption $ \apiid -> 
+    withResource (mkConfig apiid apikey) (\_ -> return ()) $ tests (Proxy :: Proxy (Price BRL)) (Proxy :: Proxy (Vol BTC))
+  where
+    ings = includingOptions
+        [ (Option (Proxy :: Proxy API_ID))
+        , (Option (Proxy :: Proxy API_KEY))
+        ] : defaultIngredients
 
--- tests :: forall p v q c. (Coin p, Coin v) => Proxy (Price p) -> Proxy (Vol v) -> TestTree
-tests :: forall p v q c p' v'. (Coin p, Coin v, C.Coin p', C.Coin v', (ToFromCB p p'), (ToFromCB v v')) 
-      => Proxy (Price p) -> Proxy (Vol v) -> TestTree
-tests _ _ = testGroup " Coinbene Connector Tests"
-    [ testCase "Executor - PlaceLimit test" $ do
-        r <- executor (Proxy :: Proxy IO)
-            undefined
-            undefined
-            undefined
-            (PlaceLimit Ask (Price 9000 :: Price p) (Vol 0.05 :: Vol v) Nothing)
+    mkConfig apiid apikey = do 
+        manager <- newManager tlsManagerSettings
+        return $ Coinbene manager apiid apikey
+
+--------------------------------------------------------------------------------
+tests :: forall p v q c p' v'. (Coin p, Coin v, C.Coin p', C.Coin v', ToFromCB p p', ToFromCB v v') 
+      => Proxy (Price p) -> Proxy (Vol v) -> IO Coinbene -> TestTree
+tests _ _ getConfig = testGroup " Coinbene Connector Tests"
+    -- [ testCase "Executor - PlaceLimit test" $ do
+    --     -- "Despite it being an IO action, the resource it returns will be acquired only once and shared across all the tests in the tree."
+    --     config <- getConfig 
+    --     r <- executor (Proxy :: Proxy IO)
+    --         config
+    --         undefined
+    --         undefined
+    --         (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) Nothing)
+    --     print r
+
+    [ testCase "Executor - Place then CancelLimit test" $ do
+        config <- getConfig 
+        oid <- executor (Proxy :: Proxy IO) config undefined undefined (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 0))
+        r   <- executor (Proxy :: Proxy IO) config undefined undefined ((CancelLimit $ COID 0) :: Action p v)
+        print oid
         print r
 
 

@@ -42,17 +42,17 @@ test-suite test-coinbene-connector
   build-depends:       base
                      , coinbene-connector
                      , pipes-concurrency
-                    --  , reactive-banana >= 1.1.0.1
                      , razao-base
                      , tasty
                      , tasty-hunit
-                    --  , stm
                      , mtl
                      , unordered-containers
                      , monad-time
                      , coinbene-api
                      , market-interface
                      , market-model
+                     , http-client
+                     , http-client-tls
 
 source-repository head
   type:     git

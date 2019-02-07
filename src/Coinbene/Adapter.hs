@@ -28,7 +28,7 @@ instance IntoIO IO where
     intoIO = id
 ---------------------------------------
 
--- I am Not adding a dependency on reactive-banana, so we need this:
+-- We need this to avoid adding a dependency on reactive-banana
 type Handler a = a -> IO()
 
 
@@ -66,6 +66,10 @@ instance ToFromCB BTC C.BTC where
     toCB   a = realToFrac a
     fromCB b = realToFrac b
 
+instance ToFromCB LTC C.LTC where
+    toCB   a = realToFrac a
+    fromCB b = realToFrac b
+    
 --------------------------------------------------------------------------------
 
 data CoinbeneState = CoinbeneState [(C.OrderID, Maybe ClientOID)]
