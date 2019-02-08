@@ -6,6 +6,7 @@ module Coinbene.Connector where
 import           Data.Proxy
 import           Data.Hashable
 import           Control.Monad.Time
+import           Control.Concurrent.STM.TVar
 
 import qualified Coinbene as C
 

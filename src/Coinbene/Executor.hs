@@ -5,20 +5,16 @@
 module Coinbene.Executor where
 
 import           Data.Proxy
-import           System.IO           (hPutStr, hPutStrLn, stderr)
+import           System.IO                    (hPutStr, hPutStrLn, stderr)
 import           Control.Monad.Time
+import           Control.Monad.State
+import           Control.Monad.STM            (atomically)
+import           Control.Concurrent.STM.TVar
 
 import           Coinbene.Adapter
 import           Market.Interface
 
 import qualified Coinbene as C
-
-
--- class Exchange config m where
---     placeLimit    :: (HTTP m, MonadTime m, Coin p, Coin v) => config -> OrderSide -> Price p -> Vol v -> m OrderID
---     cancel        :: (HTTP m, MonadTime m) => config -> OrderID -> m OrderID
-
-
 
 ---------------------------------------
 executor
@@ -27,15 +23,43 @@ executor
                                 , C.Coin p', C.Coin v'
                                 , (ToFromCB p p'), (ToFromCB v v')
                                 ) 
-    => Proxy m -> Coinbene -> CoinbeneState -> Handler (TradingEv p v q c) 
+    => Proxy m -> Coinbene -> TVar CoinbeneConnector -> Handler (TradingEv p v q c) 
     -> Executor p v
-executor proxy config _state _handler (PlaceLimit sd price vol mCOID)
-    = do
-        a <- intoIO $ ( (C.placeLimit config (toCB sd) (toCB price) (toCB vol) ) :: m C.OrderID )
-        print a
+executor proxy config state _handler (PlaceLimit sd price vol mCOID) = do
+    oid <- intoIO $ ( (C.placeLimit config (toCB sd) (toCB price) (toCB vol) ) :: m C.OrderID )
+    insertNewOrder mCOID oid state 
+    print oid
+  where
+    insertNewOrder :: Maybe ClientOID -> C.OrderID -> TVar CoinbeneConnector -> IO ()
+    insertNewOrder mcoid oid connector = 
+        atomically $ stateTVar state $ runState (insertOrder mcoid oid)
+
+    insertOrder :: Maybe ClientOID -> C.OrderID -> State CoinbeneConnector ()
+    insertOrder mcoid oid = do
+        orderMap <- get
+        put (insertMain oid mcoid () orderMap)
+
+executor proxy config state _handler (CancelLimit coid) = do
+    moid <- lookupOID coid state
+    case moid of
+        Nothing  -> error $ "executor - could not cancel order for ClientOID: " 
+                            <> show coid <> " no matching OrderID."
+        Just oid -> do
+            intoIO ( C.cancel config oid :: m C.OrderID )
+            return ()
+
+  where
+    lookupOID :: ClientOID -> TVar CoinbeneConnector -> IO (Maybe C.OrderID)
+    lookupOID coid connector = atomically $ stateTVar state $ runState (lookupOID' coid)
+
+    lookupOID' :: ClientOID -> State CoinbeneConnector (Maybe C.OrderID)
+    lookupOID' coid = do
+        orderMap <- get
+        return $ fmap fst $ lookupAux coid orderMap
+
 
 terminator 
     :: forall m p v q c. (HTTP m, MonadTime m, IntoIO m, Coin p, Coin v) 
-    => Proxy m -> Coinbene -> CoinbeneState -> Handler (TradingEv p v q c) 
+    => Proxy m -> Coinbene -> TVar CoinbeneConnector -> Handler (TradingEv p v q c) 
     -> Terminator
 terminator _proxy _config _state _handler = hPutStrLn stderr "\nExecutor exiting!"

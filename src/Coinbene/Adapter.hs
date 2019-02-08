@@ -15,6 +15,7 @@ import           Prelude hiding (lookup)
 import           Data.Hashable
 import           Data.HashMap.Strict
 import           Control.Monad.Time
+import           Control.Concurrent.STM.TVar
 
 import qualified Coinbene as C
 import           Market.Interface
@@ -75,16 +76,16 @@ instance ToFromCB LTC C.LTC where
     fromCB b = realToFrac b
 
 --------------------------------------------------------------------------------
+instance Hashable C.OrderID
 
-data CoinbeneState = CoinbeneState [(C.OrderID, Maybe ClientOID)]
+type CoinbeneConnector  = MainAuxMap C.OrderID ClientOID ()
+emptyCoinbeneConnector = emptyM
 
--- class Exchange config m where
---     placeLimit    :: (HTTP m, MonadTime m, Coin p, Coin v) => config -> OrderSide -> Price p -> Vol v -> m OrderID
---     cancel        :: (HTTP m, MonadTime m) => config -> OrderID -> m OrderID
-
-
-
+--------------------------------------------------------------------------------
 data MainAuxMap k1 k2 v = MainAuxMap { mainM :: HashMap k1 (Maybe k2, v), auxM :: HashMap k2 k1 }
+
+emptyM :: MainAuxMap k1 k2 v
+emptyM = MainAuxMap { mainM = empty :: HashMap k1 (Maybe k2, v), auxM = empty :: HashMap k2 k1 }
 
 lookupMain :: (Eq k1, Hashable k1, Eq k2, Hashable k2) => k1 -> MainAuxMap k1 k2 v -> Maybe (Maybe k2, v)
 lookupMain k1 map = lookup k1 (mainM map) -- does NOT check for inconsistency
@@ -99,8 +100,10 @@ lookupAux k2 map =
                 then Just (k1, v) 
                 else error "lookupAux - main entry linking back to wrong secondary key"
 
+-- | insertMain inserts a new association
 -- if k1 does not exist then k2 should not exist or be `Nothing` 
 -- if k1 exist then k2 should match existing value
+-- otherwise error
 insertMain :: (Eq k1, Hashable k1, Eq k2, Hashable k2) => k1 -> Maybe k2 -> v -> MainAuxMap k1 k2 v -> MainAuxMap k1 k2 v
 insertMain k1 mk2 v map = case lookupMain k1 map of
     Nothing -> case mk2 of 
@@ -116,7 +119,6 @@ insertMain k1 mk2 v map = case lookupMain k1 map of
   where
     insertOverwritePair k1  Nothing  v map = map {mainM = insert k1 (Nothing, v) (mainM map)}
     insertOverwritePair k1 (Just k2) v map = map {mainM = insert k1 (Just k2, v) (mainM map), auxM = insert k2 k1 (auxM map)}
-
 
 -- | deletes corresponding entry from map, if present
 deleteMain :: (Eq k1, Hashable k1, Eq k2, Hashable k2) => k1 -> MainAuxMap k1 k2 v -> MainAuxMap k1 k2 v

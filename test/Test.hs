@@ -8,6 +8,7 @@ module Main where
 import           Data.Proxy
 import           Control.Monad.State
 import           Control.Monad.Time
+import           Control.Concurrent.STM.TVar  (newTVarIO)
 
 import           Test.Tasty
 import           Test.Tasty.HUnit
@@ -66,9 +67,10 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
     --         (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) Nothing)
     
     [ testCase "Executor - Place then CancelLimit test" $ do
-        config <- getConfig 
-        executor (Proxy :: Proxy IO) config undefined undefined (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 0))
-        executor (Proxy :: Proxy IO) config undefined undefined ((CancelLimit $ COID 0) :: Action p v)
+        config         <- getConfig
+        connectorState <- newTVarIO emptyCoinbeneConnector
+        executor (Proxy :: Proxy IO) config connectorState undefined (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 0))
+        executor (Proxy :: Proxy IO) config connectorState undefined ((CancelLimit $ COID 0) :: Action p v)
 
 
 

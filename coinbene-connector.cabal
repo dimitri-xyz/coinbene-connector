@@ -29,6 +29,7 @@ library
                      , unordered-containers
                      , hashable
                      , mtl
+                     , stm
                      , monad-time
                      , coinbene-api
                      , market-model
@@ -53,6 +54,7 @@ test-suite test-coinbene-connector
                      , market-model
                      , http-client
                      , http-client-tls
+                     , stm
 
 source-repository head
   type:     git
