@@ -59,19 +59,16 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
     -- [ testCase "Executor - PlaceLimit test" $ do
     --     -- "Despite it being an IO action, the resource it returns will be acquired only once and shared across all the tests in the tree."
     --     config <- getConfig 
-    --     r <- executor (Proxy :: Proxy IO)
+    --     executor (Proxy :: Proxy IO)
     --         config
     --         undefined
     --         undefined
     --         (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) Nothing)
-    --     print r
-
+    
     [ testCase "Executor - Place then CancelLimit test" $ do
         config <- getConfig 
-        oid <- executor (Proxy :: Proxy IO) config undefined undefined (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 0))
-        r   <- executor (Proxy :: Proxy IO) config undefined undefined ((CancelLimit $ COID 0) :: Action p v)
-        print oid
-        print r
+        executor (Proxy :: Proxy IO) config undefined undefined (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 0))
+        executor (Proxy :: Proxy IO) config undefined undefined ((CancelLimit $ COID 0) :: Action p v)
 
 
 
