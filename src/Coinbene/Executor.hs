@@ -27,13 +27,15 @@ executor
     -> Executor p v
 executor proxy config state handler (PlaceLimit sd price vol mCOID) = do
     oid <- intoIO $ ( (C.placeLimit config (toCB sd) (toCB price) (toCB vol) ) :: m C.OrderID )
-    -- must fire event first before updating connector state, see `doc/connector-architecture.md`
+    -- must fire event before updating connector state, see `doc/connector-architecture.md`
     handler (PlaceEv mCOID)
-    insertNewOrder mCOID oid state 
-    print oid
+    insertNewOrderInConnectorState mCOID oid state
+
+    print oid -- FIX ME! remove me...
+
   where
-    insertNewOrder :: Maybe ClientOID -> C.OrderID -> TVar CoinbeneConnector -> IO ()
-    insertNewOrder mcoid oid connector = 
+    insertNewOrderInConnectorState :: Maybe ClientOID -> C.OrderID -> TVar CoinbeneConnector -> IO ()
+    insertNewOrderInConnectorState mcoid oid connector =
         atomically $ stateTVar state $ runState (insertOrder mcoid oid)
 
     insertOrder :: Maybe ClientOID -> C.OrderID -> State CoinbeneConnector ()
