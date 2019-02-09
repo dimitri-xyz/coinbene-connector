@@ -25,8 +25,10 @@ executor
                                 ) 
     => Proxy m -> Coinbene -> TVar CoinbeneConnector -> Handler (TradingEv p v q c) 
     -> Executor p v
-executor proxy config state _handler (PlaceLimit sd price vol mCOID) = do
+executor proxy config state handler (PlaceLimit sd price vol mCOID) = do
     oid <- intoIO $ ( (C.placeLimit config (toCB sd) (toCB price) (toCB vol) ) :: m C.OrderID )
+    -- must fire event first before updating connector state, see `doc/connector-architecture.md`
+    handler (PlaceEv mCOID)
     insertNewOrder mCOID oid state 
     print oid
   where

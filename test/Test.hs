@@ -69,7 +69,7 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
     [ testCase "Executor - Place then CancelLimit test" $ do
         config         <- getConfig
         connectorState <- newTVarIO emptyCoinbeneConnector
-        executor (Proxy :: Proxy IO) config connectorState undefined (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 0))
+        executor (Proxy :: Proxy IO) config connectorState (\_ -> return ()) (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 0))
         executor (Proxy :: Proxy IO) config connectorState undefined ((CancelLimit $ COID 0) :: Action p v)
 
 

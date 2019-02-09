@@ -9,7 +9,7 @@ copyright:           2019 CoinBene Brasil
 category:            finance
 build-type:          Simple
 extra-source-files:  README.md
-extra-doc-files:
+extra-doc-files:     doc/connector-architecture.md
 
 cabal-version:       >=1.20
 
