@@ -121,9 +121,9 @@ I have to think of a different way to make the testing work.
 instance forall p v . (C.Coin p, C.Coin v) => C.Exchange Coinbene (TimedLogger p v) where
     placeLimit    = return undefined
     getBook       = return undefined 
-    -- getBook  _conf (Proxy :: Proxy (C.Price p)) (Proxy :: Proxy (C.Vol v)) = do
+    -- getBook  _conf (_priceProxy :: Proxy (C.Price p1)) (_volProxy :: Proxy (C.Vol v1)) = do
     --     book <- gets (\(TestLog bs) -> head bs)
-    --     return (book :: C.QuoteBook p v)
+    --     return ( book :: C.QuoteBook p1 v1)
     getOrderInfo  = return undefined
     cancel        = return undefined
     getOpenOrders = return undefined
