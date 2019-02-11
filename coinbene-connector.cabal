@@ -33,6 +33,7 @@ library
                      , monad-time
                      , coinbene-api
                      , market-model
+                     , async
 
 test-suite test-coinbene-connector
   type:                exitcode-stdio-1.0
@@ -55,6 +56,7 @@ test-suite test-coinbene-connector
                      , http-client
                      , http-client-tls
                      , stm
+                     , async
 
 source-repository head
   type:     git
