@@ -6,6 +6,7 @@
 module Main where
 
 import           Data.Proxy
+import           Data.IORef
 import           Control.Monad.State
 import           Control.Monad.Time
 import           System.IO                    (hPutStrLn, stderr)
@@ -59,7 +60,7 @@ main = defaultMainWithIngredients ings $
         return $ Coinbene manager apiid apikey
 
 --------------------------------------------------------------------------------
-tests :: forall p v q c p' v'. (Coin p, Coin v, C.Coin p', C.Coin v', ToFromCB p p', ToFromCB v v') 
+tests :: forall p v q c p' v'. (Coin p, Coin v, C.Coin p', C.Coin v', Num p', Num v', ToFromCB p p', ToFromCB v v') 
       => Proxy (Price p) -> Proxy (Vol v) -> IO Coinbene -> TestTree
 tests _ _ getConfig = testGroup " Coinbene Connector Tests"
     -- [ testCase "Executor - PlaceLimit test" $ do
@@ -81,12 +82,20 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
     [ testCase "Producer - orderbook test" $ do
         config         <- getConfig
         connectorState <- newTVarIO emptyCoinbeneConnector
+        booksRef       <- newIORef [bk1 :: QuoteBook p v () (), bk2]
 
-        pthread <- async $ producer 1000000 (Proxy :: Proxy IO) config connectorState (\(BookEv bk) -> print ( bk ::  QuoteBook p v () ()))
+        pthread <- async $ producer 1000000 (Proxy :: Proxy IO {-(TimedLogger p' v')-}) config connectorState (bookHandler booksRef)
         link pthread
         threadDelay 10000000
 
     ]
+
+bookHandler :: (Coin p, Coin v) => IORef ([QuoteBook p v () ()]) -> TradingEv p v () () -> IO ()
+bookHandler ref (BookEv bk) = do
+    bks <- readIORef ref
+    assertEqual "Produced books differ" (head bks) bk
+    writeIORef ref (tail bks)
+
 
 --------------------------------------------------------------------------------
 newtype TestLog p v = TestLog [C.QuoteBook p v]
@@ -121,6 +130,9 @@ I have to think of a different way to make the testing work.
 instance forall p v . (C.Coin p, C.Coin v) => C.Exchange Coinbene (TimedLogger p v) where
     placeLimit    = return undefined
     getBook       = return undefined 
+    -- getBook  _conf _priceProxy _volProxy = do
+    --     book <- gets (\(TestLog bs) -> head bs)
+    --     return book
     -- getBook  _conf (_priceProxy :: Proxy (C.Price p1)) (_volProxy :: Proxy (C.Vol v1)) = do
     --     book <- gets (\(TestLog bs) -> head bs)
     --     return ( book :: C.QuoteBook p1 v1)
@@ -147,16 +159,16 @@ bk1' = C.QuoteBook { C.qbAsks = [qa1', qa2', qa3', qa4'], C.qbBids = [qb1', qb2'
 bk2' = C.QuoteBook { C.qbAsks = [qa2'], C.qbBids = [] } 
 
 --------------------------------------------------------------------------------
--- qa1, qa2, qa3, qa4, qb1, qb2 :: forall p v q. (Coin p, Coin v) => Quote p v () 
+qa1, qa2, qa3, qa4, qb1, qb2 :: forall p v q. (Coin p, Coin v) => Quote p v () 
 
--- qa1 = Quote Ask (Price 1000) (Vol 1) ()
--- qa2 = Quote Ask (Price 1100) (Vol 3) ()
--- qa3 = Quote Ask (Price 1500) (Vol 1) ()
--- qa4 = Quote Ask (Price 2000) (Vol 1) ()
+qa1 = Quote Ask (Price 1000) (Vol 1) ()
+qa2 = Quote Ask (Price 1100) (Vol 3) ()
+qa3 = Quote Ask (Price 1500) (Vol 1) ()
+qa4 = Quote Ask (Price 2000) (Vol 1) ()
 
--- qb1 = Quote Bid (Price  900) (Vol 2) ()
--- qb2 = Quote Bid (Price  800) (Vol 1) ()
+qb1 = Quote Bid (Price  900) (Vol 2) ()
+qb2 = Quote Bid (Price  800) (Vol 1) ()
 
--- bk1, bk2 :: forall p v q c. (Coin p, Coin v) => QuoteBook p v () ()
--- bk1 = QuoteBook {bids = [qb1, qb2], asks = [qa1, qa2, qa3, qa4], counter = ()}
--- bk2 = QuoteBook {bids = [], asks = [qa2], counter = ()}
+bk1, bk2 :: forall p v q c. (Coin p, Coin v) => QuoteBook p v () ()
+bk1 = QuoteBook {bids = [qb1, qb2], asks = [qa1, qa2, qa3, qa4], counter = ()}
+bk2 = QuoteBook {bids = [], asks = [qa2], counter = ()}

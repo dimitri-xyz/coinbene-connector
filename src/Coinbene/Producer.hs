@@ -7,7 +7,7 @@ import           Data.Proxy
 import           Control.Monad                (forever)
 import           Control.Monad.Time
 import           Control.Concurrent           (threadDelay)
-import           Control.Concurrent.Async     (async, link)
+import           Control.Concurrent.Async     (async, link, wait)
 import           Control.Concurrent.STM.TVar
 
 import           Market.Interface
@@ -26,10 +26,11 @@ producer
     -> Producer p v q c
 producer interval proxy config state handler = do
         -- start orderbook thread
-        bkt <- async (bookThread interval)
-        link bkt
+        bkThread <- async (bookThread interval)
+        link bkThread
         -- now do other stuff
         -- ...
+        wait bkThread
   where
     bookThread interval = forever $ do
         book <- intoIO $ ( C.getBook config (Proxy :: Proxy (C.Price p')) (Proxy :: Proxy (C.Vol v')) :: m (C.QuoteBook p' v'))
