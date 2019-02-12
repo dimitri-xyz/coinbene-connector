@@ -23,9 +23,9 @@ import           Market.Interface
 import           Market.Coins
 
 ---------------------------------------
-type Producer   p v q c = IO ()
-type Executor   p v     = Action p v -> IO ()
-type Terminator         = IO ()
+type Producer   config p v q c = IO ()
+type Executor   config p v     = Action p v -> IO ()
+type Terminator config         = IO ()
 
 class Monad m => IntoIO m where
     intoIO :: m a -> IO a

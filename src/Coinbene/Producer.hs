@@ -16,15 +16,15 @@ import qualified Coinbene as C
 
 ---------------------------------------
 producer
-    :: forall m p v q c p' v'.  ( C.Exchange Coinbene m, HTTP m, MonadTime m, IntoIO m
+    :: forall config m p v q c p' v'.  ( C.Exchange config m, HTTP m, MonadTime m, IntoIO m
                                 , Coin p, Coin v
                                 , C.Coin p', C.Coin v'
                                 , (ToFromCB p p'), (ToFromCB v v')
                                 , ToFromCB (QuoteBook p v q c) (C.QuoteBook p' v')
                                 ) 
-    => Int -> Proxy m -> Coinbene -> TVar CoinbeneConnector -> Handler (TradingEv p v q c) 
-    -> Producer p v q c
-producer interval proxy config state handler = do
+    => Int -> config -> Proxy m -> TVar CoinbeneConnector -> Handler (TradingEv p v q c) 
+    -> Producer config p v q c
+producer interval config proxy state handler = do
         -- start orderbook thread
         bkThread <- async (bookThread interval)
         link bkThread

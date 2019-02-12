@@ -18,14 +18,14 @@ import qualified Coinbene as C
 
 ---------------------------------------
 executor
-    :: forall m p v q c p' v'.  ( C.Exchange Coinbene m, HTTP m, MonadTime m, IntoIO m
+    :: forall config m p v q c p' v'.  ( C.Exchange config m, HTTP m, MonadTime m, IntoIO m
                                 , Coin p, Coin v
                                 , C.Coin p', C.Coin v'
                                 , (ToFromCB p p'), (ToFromCB v v')
                                 ) 
-    => Proxy m -> Coinbene -> TVar CoinbeneConnector -> Handler (TradingEv p v q c) 
-    -> Executor p v
-executor proxy config state handler (PlaceLimit sd price vol mCOID) = do
+    => config -> Proxy m -> TVar CoinbeneConnector -> Handler (TradingEv p v q c) 
+    -> Executor config p v
+executor config proxy state handler (PlaceLimit sd price vol mCOID) = do
     oid <- intoIO $ ( (C.placeLimit config (toCB sd) (toCB price) (toCB vol) ) :: m C.OrderID )
     -- must fire event before updating connector state, see `doc/connector-architecture.md`
     handler (PlaceEv mCOID)
@@ -43,7 +43,7 @@ executor proxy config state handler (PlaceLimit sd price vol mCOID) = do
         orderMap <- get
         put (insertMain oid mcoid () orderMap)
 
-executor proxy config state _handler (CancelLimit coid) = do
+executor config proxy state _handler (CancelLimit coid) = do
     moid <- lookupOID coid state
     case moid of
         Nothing  -> error $ "executor - could not cancel order for ClientOID: " 
@@ -63,7 +63,7 @@ executor proxy config state _handler (CancelLimit coid) = do
 
 
 terminator 
-    :: forall m p v q c. (HTTP m, MonadTime m, IntoIO m, Coin p, Coin v) 
-    => Proxy m -> Coinbene -> TVar CoinbeneConnector -> Handler (TradingEv p v q c) 
-    -> Terminator
-terminator _proxy _config _state _handler = hPutStrLn stderr "\nExecutor exiting!"
+    :: forall config m p v q c. (HTTP m, MonadTime m, IntoIO m, Coin p, Coin v) 
+    => config -> Proxy m -> TVar CoinbeneConnector -> Handler (TradingEv p v q c) 
+    -> Terminator config
+terminator _config _proxy _state _handler = hPutStrLn stderr "\nExecutor exiting!"

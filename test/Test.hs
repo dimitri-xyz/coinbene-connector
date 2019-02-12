@@ -2,6 +2,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE UndecidableInstances  #-}
+{-# LANGUAGE FlexibleContexts      #-}
 
 module Main where
 
@@ -48,7 +49,10 @@ instance IsOption API_KEY where
 main = defaultMainWithIngredients ings $
     askOption $ \apikey ->
     askOption $ \apiid -> 
-    withResource (mkConfig apiid apikey) (\_ -> return ()) $ tests (Proxy :: Proxy (Price BRL)) (Proxy :: Proxy (Vol BTC))
+    withResource 
+        (mkMockConfig (apiid :: API_ID) (apikey :: API_KEY))
+        (\_ -> return ()) 
+        (tests (Proxy :: Proxy (Price BRL)) (Proxy :: Proxy (Vol BTC)))
   where
     ings = includingOptions
         [ (Option (Proxy :: Proxy API_ID))
@@ -59,35 +63,54 @@ main = defaultMainWithIngredients ings $
         manager <- newManager tlsManagerSettings
         return $ Coinbene manager apiid apikey
 
+    mkMockConfig :: id -> key -> IO (MockCoinbene C.BRL C.BTC)
+    mkMockConfig _ _ = do
+        bks <- newIORef [bk1', bk2', bk3', bk1', bk2']
+        return (MC bks)
 --------------------------------------------------------------------------------
-tests :: forall p v q c p' v'. (Coin p, Coin v, C.Coin p', C.Coin v', Num p', Num v', ToFromCB p p', ToFromCB v v') 
-      => Proxy (Price p) -> Proxy (Vol v) -> IO Coinbene -> TestTree
-tests _ _ getConfig = testGroup " Coinbene Connector Tests"
-    -- [ testCase "Executor - PlaceLimit test" $ do
-    --     -- "Despite it being an IO action, the resource it returns will be acquired only once and shared across all the tests in the tree."
-    --     config         <- getConfig
-    --     connectorState <- newTVarIO emptyCoinbeneConnector
-    --     executor (Proxy :: Proxy IO)
-    --         config
-    --         connectorState
-    --         (\_ -> return ()) -- no event firing
-    --         (PlaceLimit Ask (Price 22000 :: Price p) (Vol 0.005 :: Vol v) Nothing)
-    
-    -- [ testCase "Executor - Place then CancelLimit test" $ do
-    --     config         <- getConfig
-    --     connectorState <- newTVarIO emptyCoinbeneConnector
-    --     executor (Proxy :: Proxy IO) config connectorState (\ev -> putStrLn "ORDER PLACED!") (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 0))
-    --     executor (Proxy :: Proxy IO) config connectorState undefined                         ((CancelLimit $ COID 0) :: Action p v)
+{- # Testing instance for `Exchange config m`
 
-    [ testCase "Producer - orderbook test" $ do
+The idea of the `IntoIO` typeclass failed. The producer/executor need to interweave
+IO calls in between calls to the `Exchange config m` API and it needs to remember
+the state as it goes in and out of IO. So, IntoIO is not sufficient. We will just
+do this in IO but change the configuration type to a mock one and write the
+corresponding instance for testing.
+
+-} 
+--------------------------------------------------------------------------------
+tests :: forall config p v q c p' v'. 
+      (C.Exchange config IO, Coin p, Coin v, C.Coin p', C.Coin v', Num p', Num v', ToFromCB p p', ToFromCB v v') 
+      => Proxy (Price p) -> Proxy (Vol v) -> IO config -> TestTree
+tests _ _ getConfig = testGroup " Coinbene Connector Tests"
+    [ testCase "Executor - PlaceLimit test" $ do
+        -- "Despite it being an IO action, the resource it returns 
+        -- will be acquired only once and shared across all the tests in the tree."
         config         <- getConfig
         connectorState <- newTVarIO emptyCoinbeneConnector
-        booksRef       <- newIORef [bk1, bk1, bk1, bk1, bk1, bk1, bk1, bk1, bk1, bk1 :: QuoteBook p v () ()]  -- FIX ME! proper test is [bk1, bk2]
+        executor
+            config
+            (Proxy :: Proxy IO)
+            connectorState
+            (\_ -> return ()) -- no event firing
+            (PlaceLimit Ask (Price 22000 :: Price p) (Vol 0.005 :: Vol v) Nothing)
+    
+    , testCase "Executor - Place then CancelLimit test" $ do
+        config         <- getConfig
+        connectorState <- newTVarIO emptyCoinbeneConnector
+        executor config (Proxy :: Proxy IO) connectorState (\ev -> putStrLn "ORDER PLACED!") 
+                            (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 0))
+        executor config (Proxy :: Proxy IO) connectorState undefined
+                            ((CancelLimit $ COID 0) :: Action p v)
 
-        pthread <- async $ producer 1000000 (Proxy :: Proxy (TimedLogger p' v')) config connectorState (bookHandler booksRef)
+    , testCase "Producer - orderbook test" $ do
+        config         <- getConfig
+        connectorState <- newTVarIO emptyCoinbeneConnector
+        booksRef       <- newIORef [bk1, bk2, bk3, bk1, bk2 :: QuoteBook p v () ()]
+
+        pthread <- async $ producer 1000000 config (Proxy :: Proxy IO) connectorState (bookHandler booksRef)
 
         link pthread
-        threadDelay 10000000
+        threadDelay 5000000
 
     ]
 
@@ -99,41 +122,15 @@ bookHandler ref (BookEv bk) = do
 
 
 --------------------------------------------------------------------------------
-newtype TestLog p v = TestLog [C.QuoteBook p v]
-type TimedLogger p v = State (TestLog p v)
+newtype MockCoinbene p v = MC (IORef [C.QuoteBook p v])
 
-instance HTTP (TimedLogger p v) where
-    http = undefined
-
-instance MonadTime (TimedLogger p v) where
-    currentTime = undefined
-
-instance (Num p, Num v, C.Coin p, C.Coin v) => IntoIO (TimedLogger p v) where
-    intoIO ma = return $ evalState ma (TestLog ([bk1', bk2']:: [C.QuoteBook p v]))
---------------------------------------------------------------------------------
-{- FIX ME! This is a major fail. I don't think this can work.
-I wanted to make the p and v parameters in `TimedLogger p v` match the same
-parameters in the Exchange class signature
-
-class Exchange config m where
-    placeLimit    :: (HTTP m, MonadTime m, Coin p, Coin v) => config -> OrderSide -> Price p -> Vol v -> m OrderID
-
-So, we have an extra "forall". A given `TimedLogger p v` fixes a given p and v and thus, this type canNOT have a  
-`Exchange Coinbene` instance because in an exchange instance a single monadic type works for all markets. The
-`TimedLogger p v` would only work for a single market.
-
-There is also a problem with IO. We will need to interweave IO actions within a stateful computation. The current
-IntoIO mechanism seems insufficient for this.
-
-I have to think of a different way to make the testing work.
--}
-
-instance forall p v . (C.Coin p, C.Coin v) => C.Exchange Coinbene (TimedLogger p v) where
+instance forall p v . (C.Coin p, C.Coin v) => C.Exchange (MockCoinbene p v) IO where
     placeLimit    = return undefined
 
-    getBook _ _ _ = do
-        book <- gets (\(TestLog bs) -> head bs)
-        return (from book)
+    getBook (MC ref) _ _ = do
+        books <- readIORef ref
+        atomicWriteIORef   ref (tail books)
+        return $ from $ head books
 
     getOrderInfo  = return undefined
     cancel        = return undefined
@@ -156,6 +153,7 @@ qb2' = C.BidQ (C.Price  800) (C.Vol 1)
 bk1', bk2' :: forall p v q c. (Num p, Num v, C.Coin p, C.Coin v) => C.QuoteBook p v
 bk1' = C.QuoteBook { C.qbAsks = [qa1', qa2', qa3', qa4'], C.qbBids = [qb1', qb2'] } 
 bk2' = C.QuoteBook { C.qbAsks = [qa2'], C.qbBids = [] } 
+bk3' = C.QuoteBook { C.qbAsks = [], C.qbBids = [] } 
 
                     ------------ mirrors ------------
 
@@ -173,6 +171,7 @@ qb2 = Quote Bid (Price  800) (Vol 1) ()
 bk1, bk2 :: forall p v q c. (Coin p, Coin v) => QuoteBook p v () ()
 bk1 = QuoteBook {asks = [qa1, qa2, qa3, qa4], bids = [qb1, qb2], counter = ()}
 bk2 = QuoteBook {asks = [qa2], bids = [], counter = ()}
+bk3 = QuoteBook {asks = [], bids = [], counter = ()}
 
 --------------------------------------------------------------------------------
 class FromVal a b where
@@ -184,13 +183,16 @@ instance (C.Coin a, C.Coin b) => FromVal (C.Price a) (C.Price b) where
 instance (C.Coin a, C.Coin b) => FromVal (C.Vol a) (C.Vol b) where
     from (C.Vol a) = C.Vol $ C.readBare $ C.showBare a
 
-instance (FromVal (C.Price p) (C.Price p'), FromVal (C.Vol v) (C.Vol v')) => FromVal (C.AskQuote p v) (C.AskQuote p' v') where
+instance (FromVal (C.Price p) (C.Price p'), FromVal (C.Vol v) (C.Vol v')) 
+    => FromVal (C.AskQuote p v) (C.AskQuote p' v') where
     from q@(AskQ { aqPrice = p, aqQuantity = v}) = q { aqPrice = from p, aqQuantity = from v} 
 
-instance (FromVal (C.Price p) (C.Price p'), FromVal (C.Vol v) (C.Vol v')) => FromVal (C.BidQuote p v) (C.BidQuote p' v') where
+instance (FromVal (C.Price p) (C.Price p'), FromVal (C.Vol v) (C.Vol v')) 
+    => FromVal (C.BidQuote p v) (C.BidQuote p' v') where
     from q@(BidQ { bqPrice = p, bqQuantity = v}) = q { bqPrice = from p, bqQuantity = from v} 
 
-instance (FromVal (C.AskQuote p v) (C.AskQuote p' v'), FromVal (C.BidQuote p v) (C.BidQuote p' v')) => FromVal (C.QuoteBook p v) (C.QuoteBook p' v') where
+instance (FromVal (C.AskQuote p v) (C.AskQuote p' v'), FromVal (C.BidQuote p v) (C.BidQuote p' v')) 
+    => FromVal (C.QuoteBook p v) (C.QuoteBook p' v') where
     from qb@(C.QuoteBook { qbBids = bs, qbAsks = as}) =
          qb { qbBids = from <$> bs
             , qbAsks = from <$> as

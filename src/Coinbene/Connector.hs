@@ -17,18 +17,20 @@ import           Coinbene.Executor
 import           Coinbene.Producer
 
 coinbeneInit
-    :: forall m p v q c p' v'. ( C.Exchange Coinbene m, HTTP m, MonadTime m, IntoIO m
-                               , Coin p, Coin v, C.Coin p', C.Coin v'
-                               , (ToFromCB p p'), (ToFromCB v v')
-                               , ToFromCB (QuoteBook p v q c) (C.QuoteBook p' v')
-                               )
-    => Proxy m -> Int -> Handler (TradingEv p v q c)
-    -> IO (Producer p v q c, Executor p v, Terminator)
+    :: forall config m p v q c p' v'.
+    ( C.Exchange config m, HTTP m, MonadTime m, IntoIO m
+    , Coin p, Coin v, C.Coin p', C.Coin v'
+    , (ToFromCB p p'), (ToFromCB v v')
+    , ToFromCB (QuoteBook p v q c) (C.QuoteBook p' v')
+    )
+    => Int -> config -> Proxy m -> Handler (TradingEv p v q c)
+    -> IO (Producer config p v q c, Executor config p v, Terminator config)
 
-coinbeneInit proxy interval fireEvents =
-    return  ( producer interval proxy undefined undefined fireEvents
-            , executor          proxy undefined undefined fireEvents
-            , terminator        proxy undefined undefined fireEvents)
+coinbeneInit interval config proxy fireEvents = do
+    let connectorState = undefined
+    return  ( producer interval config proxy connectorState fireEvents
+            , executor          config proxy connectorState fireEvents
+            , terminator        config proxy connectorState fireEvents)
 
 
 
