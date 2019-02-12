@@ -82,9 +82,10 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
     [ testCase "Producer - orderbook test" $ do
         config         <- getConfig
         connectorState <- newTVarIO emptyCoinbeneConnector
-        booksRef       <- newIORef [bk1 :: QuoteBook p v () (), bk2]
+        booksRef       <- newIORef [bk1, bk1, bk1, bk1, bk1, bk1, bk1, bk1, bk1, bk1 :: QuoteBook p v () ()]  -- FIX ME! proper test is [bk1, bk2]
 
-        pthread <- async $ producer 1000000 (Proxy :: Proxy IO {-(TimedLogger p' v')-}) config connectorState (bookHandler booksRef)
+        pthread <- async $ producer 1000000 (Proxy :: Proxy (TimedLogger p' v')) config connectorState (bookHandler booksRef)
+
         link pthread
         threadDelay 10000000
 
@@ -129,13 +130,11 @@ I have to think of a different way to make the testing work.
 
 instance forall p v . (C.Coin p, C.Coin v) => C.Exchange Coinbene (TimedLogger p v) where
     placeLimit    = return undefined
-    getBook       = return undefined 
-    -- getBook  _conf _priceProxy _volProxy = do
-    --     book <- gets (\(TestLog bs) -> head bs)
-    --     return book
-    -- getBook  _conf (_priceProxy :: Proxy (C.Price p1)) (_volProxy :: Proxy (C.Vol v1)) = do
-    --     book <- gets (\(TestLog bs) -> head bs)
-    --     return ( book :: C.QuoteBook p1 v1)
+
+    getBook _ _ _ = do
+        book <- gets (\(TestLog bs) -> head bs)
+        return (from book)
+
     getOrderInfo  = return undefined
     cancel        = return undefined
     getOpenOrders = return undefined
@@ -158,8 +157,10 @@ bk1', bk2' :: forall p v q c. (Num p, Num v, C.Coin p, C.Coin v) => C.QuoteBook 
 bk1' = C.QuoteBook { C.qbAsks = [qa1', qa2', qa3', qa4'], C.qbBids = [qb1', qb2'] } 
 bk2' = C.QuoteBook { C.qbAsks = [qa2'], C.qbBids = [] } 
 
---------------------------------------------------------------------------------
-qa1, qa2, qa3, qa4, qb1, qb2 :: forall p v q. (Coin p, Coin v) => Quote p v () 
+                    ------------ mirrors ------------
+
+qa1, qa2, qa3, qa4 :: forall p v q. (Coin p, Coin v) => Quote p v () 
+qb1, qb2           :: forall p v q. (Coin p, Coin v) => Quote p v () 
 
 qa1 = Quote Ask (Price 1000) (Vol 1) ()
 qa2 = Quote Ask (Price 1100) (Vol 3) ()
@@ -170,5 +171,27 @@ qb1 = Quote Bid (Price  900) (Vol 2) ()
 qb2 = Quote Bid (Price  800) (Vol 1) ()
 
 bk1, bk2 :: forall p v q c. (Coin p, Coin v) => QuoteBook p v () ()
-bk1 = QuoteBook {bids = [qb1, qb2], asks = [qa1, qa2, qa3, qa4], counter = ()}
-bk2 = QuoteBook {bids = [], asks = [qa2], counter = ()}
+bk1 = QuoteBook {asks = [qa1, qa2, qa3, qa4], bids = [qb1, qb2], counter = ()}
+bk2 = QuoteBook {asks = [qa2], bids = [], counter = ()}
+
+--------------------------------------------------------------------------------
+class FromVal a b where
+    from :: a -> b 
+
+instance (C.Coin a, C.Coin b) => FromVal (C.Price a) (C.Price b) where
+    from (C.Price a) = C.Price $ C.readBare $ C.showBare a
+
+instance (C.Coin a, C.Coin b) => FromVal (C.Vol a) (C.Vol b) where
+    from (C.Vol a) = C.Vol $ C.readBare $ C.showBare a
+
+instance (FromVal (C.Price p) (C.Price p'), FromVal (C.Vol v) (C.Vol v')) => FromVal (C.AskQuote p v) (C.AskQuote p' v') where
+    from q@(AskQ { aqPrice = p, aqQuantity = v}) = q { aqPrice = from p, aqQuantity = from v} 
+
+instance (FromVal (C.Price p) (C.Price p'), FromVal (C.Vol v) (C.Vol v')) => FromVal (C.BidQuote p v) (C.BidQuote p' v') where
+    from q@(BidQ { bqPrice = p, bqQuantity = v}) = q { bqPrice = from p, bqQuantity = from v} 
+
+instance (FromVal (C.AskQuote p v) (C.AskQuote p' v'), FromVal (C.BidQuote p v) (C.BidQuote p' v')) => FromVal (C.QuoteBook p v) (C.QuoteBook p' v') where
+    from qb@(C.QuoteBook { qbBids = bs, qbAsks = as}) =
+         qb { qbBids = from <$> bs
+            , qbAsks = from <$> as
+            }
