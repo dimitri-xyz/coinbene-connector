@@ -65,8 +65,9 @@ main = defaultMainWithIngredients ings $
 
     mkMockConfig :: id -> key -> IO (MockCoinbene C.BRL C.BTC)
     mkMockConfig _ _ = do
-        bks <- newIORef [bk1', bk2', bk3', bk1', bk2']
+        bks <- newIORef initialExchangeMockState
         return (MC bks)
+
 --------------------------------------------------------------------------------
 {- # Testing instance for `Exchange config m`
 
@@ -97,7 +98,7 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
     , testCase "Executor - Place then CancelLimit test" $ do
         config         <- getConfig
         connectorState <- newTVarIO emptyCoinbeneConnector
-        executor config (Proxy :: Proxy IO) connectorState (\ev -> putStrLn "ORDER PLACED!") 
+        executor config (Proxy :: Proxy IO) connectorState (\ev -> return () {- putStrLn "ORDER PLACED!" -}) 
                             (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 0))
         executor config (Proxy :: Proxy IO) connectorState undefined
                             ((CancelLimit $ COID 0) :: Action p v)
@@ -122,18 +123,50 @@ bookHandler ref (BookEv bk) = do
 
 
 --------------------------------------------------------------------------------
-newtype MockCoinbene p v = MC (IORef [C.QuoteBook p v])
+newtype MockCoinbene p v = MC (IORef (ExchangeMockState p v))
 
-instance forall p v . (C.Coin p, C.Coin v) => C.Exchange (MockCoinbene p v) IO where
-    placeLimit    = return undefined
+data ExchangeMockState p v =
+    EMS { books   :: [C.QuoteBook p v]
+        , nextOID :: Int
+        , reqs    :: [Request p v]
+        } deriving (Show, Eq)
+
+initialExchangeMockState = EMS [bk1', bk2', bk3', bk1', bk2'] 0 []
+
+data Request p v
+    = NewLimit      C.OrderSide (C.Price p) (C.Vol v) C.OrderID
+    | GetBook
+    | GetOrderInfo  C.OrderID
+    | Cancel        C.OrderID
+    | GetOpenOrders
+    | GetBalances 
+    | GetTrades
+    deriving (Show, Eq)
+
+----------------------------------------
+instance forall p v . (Show p, Show v, C.Coin p, C.Coin v) => C.Exchange (MockCoinbene p v) IO where
+
+    placeLimit (MC ref) sd p v = do
+        ems <- readIORef ref
+        let oid = C.OrderID $ ":oid:" <> show (nextOID ems)
+        atomicWriteIORef ref (ems {nextOID = nextOID ems + 10, reqs = NewLimit sd (from p) (from v) oid : reqs ems})
+        -- putStrLn $ "Placing: " <> show (NewLimit sd (from p) (from v) oid :: Request p v)
+        return oid
 
     getBook (MC ref) _ _ = do
-        books <- readIORef ref
-        atomicWriteIORef   ref (tail books)
-        return $ from $ head books
+        ems <- readIORef ref
+        atomicWriteIORef ref (ems {books = tail (books ems)})
+        -- putStrLn $ "Returning orderbook: " <> show (head $ books ems)
+        return $ from $ head (books ems)
+
+    cancel (MC ref) oid = do
+        ems <- readIORef ref
+        atomicWriteIORef ref (ems {reqs = Cancel oid : reqs ems})
+        -- putStrLn $ "Cancelling: " <> show oid
+        return oid
+
 
     getOrderInfo  = return undefined
-    cancel        = return undefined
     getOpenOrders = return undefined
     getBalances   = return undefined
     getTrades     = return undefined

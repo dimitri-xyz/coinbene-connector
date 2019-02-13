@@ -30,9 +30,6 @@ executor config proxy state handler (PlaceLimit sd price vol mCOID) = do
     -- must fire event before updating connector state, see `doc/connector-architecture.md`
     handler (PlaceEv mCOID)
     insertNewOrderInConnectorState mCOID oid state
-
-    print oid -- FIX ME! remove me...
-
   where
     insertNewOrderInConnectorState :: Maybe ClientOID -> C.OrderID -> TVar CoinbeneConnector -> IO ()
     insertNewOrderInConnectorState mcoid oid connector =
