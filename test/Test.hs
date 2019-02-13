@@ -63,10 +63,10 @@ main = defaultMainWithIngredients ings $
         manager <- newManager tlsManagerSettings
         return $ Coinbene manager apiid apikey
 
-    mkMockConfig :: id -> key -> IO (MockCoinbene C.BRL C.BTC)
-    mkMockConfig _ _ = do
-        bks <- newIORef initialExchangeMockState
-        return (MC bks)
+mkMockConfig :: id -> key -> IO (MockCoinbene C.BRL C.BTC)
+mkMockConfig _ _ = do
+    bks <- newIORef initialExchangeMockState
+    return (MC bks)
 
 --------------------------------------------------------------------------------
 {- # Testing instance for `Exchange config m`
@@ -103,8 +103,9 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
         executor config (Proxy :: Proxy IO) connectorState undefined
                             ((CancelLimit $ COID 0) :: Action p v)
 
+    ---------- Tests that only apply to the Mocking Framework ----------
     , testCase "Producer - orderbook test" $ do
-        config         <- getConfig
+        config         <- mkMockConfig undefined undefined -- separate exchange instance for this testcase
         connectorState <- newTVarIO emptyCoinbeneConnector
         evsRef         <- newIORef
             [ BookEv bk1, BookEv bk2, BookEv bk3, BookEv bk1, BookEv bk2 :: TradingEv p v () ()]
@@ -114,7 +115,28 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
         link pthread
         threadDelay 5000000
 
+    , testCase "Producer - cancellation detection" $ do
+        config         <- mkMockConfig undefined undefined -- separate exchange instance for this testcase
+        connectorState <- newTVarIO emptyCoinbeneConnector
+        evsRef         <- newIORef [ PlaceEv  (Just $ COID 123)
+                                   , CancelEv (Just $ COID 123) :: TradingEv p v () ()
+                                   ]
+        pthread <- async $ producer 1000000 config (Proxy :: Proxy IO) connectorState (dropBookEvs $ testEventHandler evsRef)
+        link pthread
+
+        executor config (Proxy :: Proxy IO) connectorState (testEventHandler evsRef)
+                            (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 123))
+
+        threadDelay 5000000
+        ems <- readIORef evsRef
+        assertEqual "Some events were not issued" [] ems
+
     ]
+
+dropBookEvs :: (Coin p, Coin v) => (TradingEv p v () () -> IO ()) -> TradingEv p v () () -> IO ()
+dropBookEvs handler ev = case ev of
+    BookEv _ -> return ()
+    other    -> handler other
 
 testEventHandler :: (Coin p, Coin v) => IORef ([TradingEv p v () ()]) -> TradingEv p v () () -> IO ()
 testEventHandler evsRef ev = do
