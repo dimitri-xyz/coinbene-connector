@@ -106,20 +106,21 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
     , testCase "Producer - orderbook test" $ do
         config         <- getConfig
         connectorState <- newTVarIO emptyCoinbeneConnector
-        booksRef       <- newIORef [bk1, bk2, bk3, bk1, bk2 :: QuoteBook p v () ()]
+        evsRef         <- newIORef
+            [ BookEv bk1, BookEv bk2, BookEv bk3, BookEv bk1, BookEv bk2 :: TradingEv p v () ()]
 
-        pthread <- async $ producer 1000000 config (Proxy :: Proxy IO) connectorState (bookHandler booksRef)
+        pthread <- async $ producer 1000000 config (Proxy :: Proxy IO) connectorState (testEventHandler evsRef)
 
         link pthread
         threadDelay 5000000
 
     ]
 
-bookHandler :: (Coin p, Coin v) => IORef ([QuoteBook p v () ()]) -> TradingEv p v () () -> IO ()
-bookHandler ref (BookEv bk) = do
-    bks <- readIORef ref
-    assertEqual "Produced books differ" (head bks) bk
-    writeIORef ref (tail bks)
+testEventHandler :: (Coin p, Coin v) => IORef ([TradingEv p v () ()]) -> TradingEv p v () () -> IO ()
+testEventHandler evsRef ev = do
+    evs <- readIORef evsRef
+    assertEqual "Events differ:" (head evs) ev
+    writeIORef evsRef (tail evs)
 
 
 --------------------------------------------------------------------------------
