@@ -12,7 +12,7 @@ import           Control.Monad.State
 import           Control.Monad.Time
 import           System.IO                    (hPutStrLn, stderr)
 import           Control.Concurrent           (threadDelay)
-import           Control.Concurrent.Async     (async, link)
+import           Control.Concurrent.Async     (async, link, cancel)
 import           Control.Concurrent.STM.TVar  (newTVarIO)
 
 import           Test.Tasty
@@ -104,19 +104,24 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
                             ((CancelLimit $ COID 0) :: Action p v)
 
     ---------- Tests that only apply to the Mocking Framework ----------
+    --
+    -- separate exchange instance for each testcase
+    --
+    
     , testCase "Producer - orderbook test" $ do
-        config         <- mkMockConfig undefined undefined -- separate exchange instance for this testcase
+        config         <- mkMockConfig undefined undefined 
         connectorState <- newTVarIO emptyCoinbeneConnector
         evsRef         <- newIORef
             [ BookEv bk1, BookEv bk2, BookEv bk3, BookEv bk1, BookEv bk2 :: TradingEv p v () ()]
 
         pthread <- async $ producer 1000000 config (Proxy :: Proxy IO) connectorState (testEventHandler evsRef)
-
         link pthread
+
         threadDelay 5000000
+        cancel pthread
 
     , testCase "Producer - cancellation detection" $ do
-        config         <- mkMockConfig undefined undefined -- separate exchange instance for this testcase
+        config         <- mkMockConfig undefined undefined
         connectorState <- newTVarIO emptyCoinbeneConnector
         evsRef         <- newIORef [ PlaceEv  (Just $ COID 123)
                                    , CancelEv (Just $ COID 123) :: TradingEv p v () ()
@@ -128,6 +133,8 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
                             (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 123))
 
         threadDelay 5000000
+        cancel pthread
+
         ems <- readIORef evsRef
         assertEqual "Some events were not issued" [] ems
 
@@ -170,23 +177,27 @@ data Request p v
 instance forall p v . (Show p, Show v, C.Coin p, C.Coin v) => C.Exchange (MockCoinbene p v) IO where
 
     placeLimit (MC ref) sd p v = do
-        ems <- readIORef ref
-        let oid = C.OrderID $ ":oid:" <> show (nextOID ems)
-        atomicWriteIORef ref (ems {nextOID = nextOID ems + 10, reqs = NewLimit sd (from p) (from v) oid : reqs ems})
+        oid <- atomicModifyIORef' ref (update sd p v)
         -- putStrLn $ "Placing: " <> show (NewLimit sd (from p) (from v) oid :: Request p v)
         return oid
+      where
+        update sd p v ems =
+            let oid = C.OrderID $ ":oid:" <> show (nextOID ems)
+             in (ems {nextOID = nextOID ems + 10, reqs = NewLimit sd (from p) (from v) oid : reqs ems}, oid)
 
     getBook (MC ref) _ _ = do
-        ems <- readIORef ref
-        atomicWriteIORef ref (ems {books = tail (books ems)})
-        -- putStrLn $ "Returning orderbook: " <> show (head $ books ems)
-        return $ from $ head (books ems)
+        bk' <- atomicModifyIORef' ref update
+        -- putStrLn $ "Returning orderbook converted `from`: " <> show bk'
+        return $ from $ bk'
+      where
+        update ems = (ems {books = tail (books ems)}, head (books ems))
 
     cancel (MC ref) oid = do
-        ems <- readIORef ref
-        atomicWriteIORef ref (ems {reqs = Cancel oid : reqs ems})
+        oid <- atomicModifyIORef' ref (update oid)
         -- putStrLn $ "Cancelling: " <> show oid
         return oid
+      where
+        update oid ems = (ems {reqs = Cancel oid : reqs ems}, oid)
 
 
     getOrderInfo  = return undefined
