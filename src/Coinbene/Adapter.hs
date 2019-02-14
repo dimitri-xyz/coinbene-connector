@@ -95,10 +95,10 @@ instance ToFromCB (Quote p v ()) (C.AskQuote p' v') => ToFromCB (QuoteBook p v (
 --------------------------------------------------------------------------------
 instance Hashable C.OrderID
 
-type CoinbeneConnector  = MainAuxMap C.OrderID ClientOID OrderFillStatus
+type CoinbeneConnector  = MainAuxMap C.OrderID ClientOID ConnectorOrderInfo
 emptyCoinbeneConnector = emptyM
 
-data OrderFillStatus =
+data ConnectorOrderInfo =
     FillStatus
     { oSide        :: C.OrderSide
     , limitPrice   :: C.Price Scientific
@@ -162,3 +162,6 @@ deleteAux  :: forall k1 k2 v. (Eq k1, Hashable k1, Eq k2, Hashable k2) => k2 -> 
 deleteAux k2 map = case lookupAux k2 map of
     Nothing      -> map
     Just (k1, _) -> deleteMain k1 map
+
+keys :: MainAuxMap k1 k2 v1 -> [(k1, Maybe k2)]
+keys map = toList (fst <$> mainM map)
