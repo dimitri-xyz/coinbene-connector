@@ -107,7 +107,7 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
     --
     -- separate exchange instance for each testcase
     --
-    
+
     , testCase "Producer - orderbook test" $ do
         config         <- mkMockConfig undefined undefined 
         connectorState <- newTVarIO emptyCoinbeneConnector
@@ -130,7 +130,7 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
         link pthread
 
         executor config (Proxy :: Proxy IO) connectorState (testEventHandler evsRef)
-                            (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 123))
+                            (PlaceLimit Ask (Price 99000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 123))
 
         threadDelay 5000000
         cancel pthread
@@ -156,12 +156,14 @@ testEventHandler evsRef ev = do
 newtype MockCoinbene p v = MC (IORef (ExchangeMockState p v))
 
 data ExchangeMockState p v =
-    EMS { books   :: [C.QuoteBook p v]
-        , nextOID :: Int
-        , reqs    :: [Request p v]
+    EMS { books    :: [C.QuoteBook p v]
+        , nextOID  :: Int
+        , reqs     :: [Request p v]
+        , getOpens :: [[C.OrderInfo]]
+        , getInfos :: [C.OrderInfo]
         } deriving (Show, Eq)
 
-initialExchangeMockState = EMS [bk1', bk2', bk3', bk1', bk2'] 0 []
+initialExchangeMockState = EMS [bk1', bk2', bk3', bk1', bk2'] 0 [] [[],[],[],[],[]] []
 
 data Request p v
     = NewLimit      C.OrderSide (C.Price p) (C.Vol v) C.OrderID
@@ -199,9 +201,22 @@ instance forall p v . (Show p, Show v, C.Coin p, C.Coin v) => C.Exchange (MockCo
       where
         update oid ems = (ems {reqs = Cancel oid : reqs ems}, oid)
 
+    getOpenOrders (MC ref) _ _ = do
+        infos <- atomicModifyIORef' ref update
+        -- putStrLn $ "Open orders: " <> show infos
+        return infos
+      where
+        update ems = (ems {getOpens = tail (getOpens ems)}, head (getOpens ems))
 
-    getOrderInfo  = return undefined
-    getOpenOrders = return undefined
+    -- FIX ME! I am ignoring OrderIDs for now and just returning the next item on the list
+    getOrderInfo (MC ref) _oid = do 
+        info <- atomicModifyIORef' ref update
+        putStrLn $ "Order Info: " <> show info
+        return info
+      where
+        update ems = (ems {getInfos = tail (getInfos ems)}, head (getInfos ems))
+
+
     getBalances   = return undefined
     getTrades     = return undefined
 

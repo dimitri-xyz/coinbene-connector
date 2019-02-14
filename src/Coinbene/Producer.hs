@@ -26,20 +26,22 @@ producer
     => Int -> config -> Proxy m -> TVar CoinbeneConnector -> Handler (TradingEv p v q c) 
     -> Producer config p v q c
 producer interval config proxy state handler = do
-    -- start orderbook thread
-    bkThread <- async (bookThread interval)
+    bkThread <- async bookThread
     link bkThread
-
     -- This thread must cancel the inner bookThread if it receives an exception.
-    flip finally (cancel bkThread) $ forever $ do
-        -- ...
-        threadDelay 20000000
-
-    -- was here to propagate exceptions, it's no longer needed as we never leave the loop
-    -- wait bkThread
+    finally detectThread (cancel bkThread) 
 
   where
-    bookThread interval = forever $ do
+    bookThread = forever $ do
         book <- intoIO $ ( C.getBook config (Proxy :: Proxy (C.Price p')) (Proxy :: Proxy (C.Vol v')) :: m (C.QuoteBook p' v'))
         handler (BookEv $ fromCB $ book)
         threadDelay interval
+
+    detectThread = forever $ do
+        infos <- intoIO $ ( C.getOpenOrders config (Proxy :: Proxy (C.Price p')) (Proxy :: Proxy (C.Vol v')) :: m [C.OrderInfo])
+
+        threadDelay interval
+
+-- getOpenOrders :: (HTTP m, MonadTime m, Coin p, Coin v) => config -> Proxy (Price p) -> Proxy (Vol v) -> m [OrderInfo]
+-- getOrderInfo  :: (HTTP m, MonadTime m) => config -> OrderID -> m OrderInfo
+
