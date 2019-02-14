@@ -5,6 +5,7 @@
 module Coinbene.Executor where
 
 import           Data.Proxy
+import           Data.Scientific
 import           System.IO                    (hPutStr, hPutStrLn, stderr)
 import           Control.Monad.Time
 import           Control.Monad.State
@@ -25,20 +26,35 @@ executor
                                 ) 
     => config -> Proxy m -> TVar CoinbeneConnector -> Handler (TradingEv p v q c) 
     -> Executor config p v
-executor config proxy state handler (PlaceLimit sd price vol mCOID) = do
+executor config proxy state handler (PlaceLimit sd price@(Price p) vol@(Vol v) mCOID) = do
     oid <- intoIO $ ( (C.placeLimit config (toCB sd) (toCB price) (toCB vol) ) :: m C.OrderID )
     -- must fire event before updating connector state, see `doc/connector-architecture.md`
     handler (PlaceEv mCOID)
-    insertNewOrderInConnectorState mCOID oid state
+    insertNewOrderInConnectorState oid mCOID (toCB sd) (realToFrac p) (realToFrac v) state
   where
-    insertNewOrderInConnectorState :: Maybe ClientOID -> C.OrderID -> TVar CoinbeneConnector -> IO ()
-    insertNewOrderInConnectorState mcoid oid connector =
-        atomically $ stateTVar state $ runState (insertOrder mcoid oid)
+    insertNewOrderInConnectorState 
+        :: C.OrderID -> Maybe ClientOID -> C.OrderSide -> C.Price Scientific -> C.Vol Scientific
+        -> TVar CoinbeneConnector -> IO ()
+    insertNewOrderInConnectorState oid mcoid sd p v connector =
+        atomically $ stateTVar state $ runState (insertOrder oid mcoid sd p v)
 
-    insertOrder :: Maybe ClientOID -> C.OrderID -> State CoinbeneConnector ()
-    insertOrder mcoid oid = do
+    insertOrder
+        :: C.OrderID -> Maybe ClientOID -> C.OrderSide -> C.Price Scientific -> C.Vol Scientific
+        -> State CoinbeneConnector ()
+    insertOrder oid mcoid sd p v = do
         orderMap <- get
-        put (insertMain oid mcoid () orderMap)
+        let newOrder =
+                FillStatus
+                { oSide      = sd
+                , limitPrice = p
+                , limitVol   = v
+                , mModified  = Nothing
+                , status     = C.Unfilled
+                , filledVol        = C.Vol  0
+                , filledAmount     = C.Cost 0
+                , mAvePriceAndFees = Nothing
+                }
+        put (insertMain oid mcoid newOrder orderMap)
 
 executor config proxy state _handler (CancelLimit coid) = do
     moid <- lookupOID coid state

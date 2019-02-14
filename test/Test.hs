@@ -13,7 +13,7 @@ import           Control.Monad.Time
 import           System.IO                    (hPutStrLn, stderr)
 import           Control.Concurrent           (threadDelay)
 import           Control.Concurrent.Async     (async, link, cancel)
-import           Control.Concurrent.STM.TVar  (newTVarIO)
+import           Control.Concurrent.STM.TVar  (newTVarIO, readTVarIO)
 
 import           Test.Tasty
 import           Test.Tasty.HUnit
@@ -126,14 +126,17 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
         evsRef         <- newIORef [ PlaceEv  (Just $ COID 123)
                                    , CancelEv (Just $ COID 123) :: TradingEv p v () ()
                                    ]
+        executor config (Proxy :: Proxy IO) connectorState (testEventHandler evsRef)
+                            (PlaceLimit Ask (Price 99000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 123))
+        -- this sequencing guarantees the order has been placed (and is in the connector's state) before the producer starts
         pthread <- async $ producer 1000000 config (Proxy :: Proxy IO) connectorState (dropBookEvs $ testEventHandler evsRef)
         link pthread
 
-        executor config (Proxy :: Proxy IO) connectorState (testEventHandler evsRef)
-                            (PlaceLimit Ask (Price 99000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 123))
-
         threadDelay 5000000
         cancel pthread
+
+        state <- readTVarIO connectorState
+        print state
 
         ems <- readIORef evsRef
         assertEqual "Some events were not issued" [] ems
@@ -211,7 +214,7 @@ instance forall p v . (Show p, Show v, C.Coin p, C.Coin v) => C.Exchange (MockCo
     -- FIX ME! I am ignoring OrderIDs for now and just returning the next item on the list
     getOrderInfo (MC ref) _oid = do 
         info <- atomicModifyIORef' ref update
-        putStrLn $ "Order Info: " <> show info
+        -- putStrLn $ "Order Info: " <> show info
         return info
       where
         update ems = (ems {getInfos = tail (getInfos ems)}, head (getInfos ems))

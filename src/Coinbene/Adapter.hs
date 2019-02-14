@@ -15,6 +15,7 @@ module Coinbene.Adapter
 import           Prelude hiding (lookup)
 import           Data.Hashable
 import           Data.HashMap.Strict
+import           Data.Scientific
 import           Control.Monad.Time
 import           Control.Concurrent.STM.TVar
 
@@ -94,11 +95,24 @@ instance ToFromCB (Quote p v ()) (C.AskQuote p' v') => ToFromCB (QuoteBook p v (
 --------------------------------------------------------------------------------
 instance Hashable C.OrderID
 
-type CoinbeneConnector  = MainAuxMap C.OrderID ClientOID ()
+type CoinbeneConnector  = MainAuxMap C.OrderID ClientOID OrderFillStatus
 emptyCoinbeneConnector = emptyM
 
+data OrderFillStatus =
+    FillStatus
+    { oSide        :: C.OrderSide
+    , limitPrice   :: C.Price Scientific
+    , limitVol     :: C.Vol   Scientific
+    , mModified    :: Maybe C.MilliEpoch
+    , status       :: C.OrderStatus
+    , filledVol    :: C.Vol  Scientific
+    , filledAmount :: C.Cost Scientific
+    -- (average price, fees), nothing means "don't know"
+    , mAvePriceAndFees :: Maybe (C.Price Scientific, C.Cost Scientific)
+    } deriving (Show, Eq)
+
 --------------------------------------------------------------------------------
-data MainAuxMap k1 k2 v = MainAuxMap { mainM :: HashMap k1 (Maybe k2, v), auxM :: HashMap k2 k1 }
+data MainAuxMap k1 k2 v = MainAuxMap { mainM :: HashMap k1 (Maybe k2, v), auxM :: HashMap k2 k1 } deriving Show
 
 emptyM :: MainAuxMap k1 k2 v
 emptyM = MainAuxMap { mainM = empty :: HashMap k1 (Maybe k2, v), auxM = empty :: HashMap k2 k1 }

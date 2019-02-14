@@ -34,6 +34,7 @@ library
                      , coinbene-api
                      , market-model
                      , async
+                     , scientific
 
 test-suite test-coinbene-connector
   type:                exitcode-stdio-1.0
