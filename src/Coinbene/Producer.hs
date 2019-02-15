@@ -50,21 +50,27 @@ producer interval config proxy state handler = do
         snapshotMainAuxMap <- readTVarIO state
         -- can't use snapshot as basis for update as it may be immediately outdated,
         -- but we will use snapshot to defined what oids will be looked at in this polling cycle
-        let oids = fst <$> keys snapshotMainAuxMap
+        let keyPairs = keys snapshotMainAuxMap
             infoMatches oid info = C.orderID info == oid
             dispatch evs = mapM_ handler evs
 
-        forM oids $ \oid -> do
+        forM keyPairs $ \(oid, mcoid) -> do
             newInfo <- case find (infoMatches oid) infos of
                     Just info -> return info
                     Nothing   -> intoIO (C.getOrderInfo config oid :: m C.OrderInfo) -- FIX ME! API never fails! No Maybe!
 
-            fillEvs    <- atomicallyUpdateConnector (updateIfNewer newInfo oid (updateFills newInfo)) state
+            fillEvs    <- atomicallyUpdateConnector (updateIfNewer newInfo oid (updateFills mcoid newInfo)) state
             dispatch fillEvs
 
-            closePairs <- atomicallyUpdateConnector (updateIfNewer newInfo oid (updateClose newInfo)) state
+            closePairs <- atomicallyUpdateConnector (updateIfNewer newInfo oid (updateClose mcoid newInfo)) state
+
+            -- putStrLn $ "{{{{{{{{{{" <> show (fst <$> closePairs) <> "}}}}}}}}}}"
+
             dispatch $ concat (snd <$> closePairs)
             forM_ (fst <$> closePairs) (\oid -> atomicallyUpdateConnector (removeEntry oid) state)
+
+            -- endState <- readTVarIO state
+            -- putStrLn $ "<<<<<<<<<<" <> show endState <> ">>>>>>>>>>"
 
         threadDelay interval
 
@@ -124,13 +130,17 @@ producer interval config proxy state handler = do
 --     -- (average price, fees), nothing means "don't know"
 --     , mAvePriceAndFees :: Maybe (C.Price Scientific, C.Cost Scientific)
 
-    -- -- ORIGINAL
-    -- updateOrder :: C.OrderInfo -> ConnectorOrderInfo -> (ConnectorOrderInfo,[(C.OrderID, TradingEv p v q c)])
-    -- updateOrder newInfo curInfo = (curInfo, []) -- (curInfo, [(undefined , PlaceEv (Just $ COID 5678))])
+    -- return events/updates due to fill events
+    updateFills :: Maybe ClientOID -> C.OrderInfo -> State ConnectorOrderInfo [TradingEv p v q c]
+    updateFills mcoid newInfo = return []
 
-    updateFills :: C.OrderInfo -> State ConnectorOrderInfo [TradingEv p v q c]
-    updateFills newInfo = return []
-
-    updateClose :: C.OrderInfo -> State ConnectorOrderInfo [(C.OrderID, [TradingEv p v q c])]
-    updateClose newInfo = return []
+    -- return events/oids of orders that have been `CancelEv` or `DoneEv`
+    updateClose :: Maybe ClientOID -> C.OrderInfo -> State ConnectorOrderInfo [(C.OrderID, [TradingEv p v q c])]
+    updateClose mcoid newInfo = do
+        let oid = C.orderID newInfo
+        case C.status newInfo of
+            C.PartiallyCanceled -> return [(oid, [CancelEv mcoid])]
+            C.Canceled          -> return [(oid, [CancelEv mcoid])]
+            C.Filled            -> return [(oid, [DoneEv mcoid])]
+            _                   -> return []
 

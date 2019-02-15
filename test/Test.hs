@@ -167,7 +167,7 @@ data ExchangeMockState p v =
         } deriving (Show, Eq)
 
 initialExchangeMockState = EMS [bk1', bk2', bk3', bk1', bk2'] 0 [] [[],[],[],[],[]] 
-    [unfilled123, unfilled123, unfilled123, unfilled123, unfilled123, unfilled123]
+    [unfilled123, unfilled123, canceled123, canceled123, canceled123, canceled123]
 
 data Request p v
     = NewLimit      C.OrderSide (C.Price p) (C.Vol v) C.OrderID
@@ -265,7 +265,7 @@ unfilled123 =
     , C.oSide      = C.Ask
     , C.limitPrice = C.Price 99000
     , C.limitVol   = C.Vol   0.005
-    , C.orderID    = C.OrderID ":oid:123"
+    , C.orderID    = C.OrderID ":oid:0"  -- COID 123
     , C.created    = C.MilliEpoch 0
     , C.mModified  = Nothing
     , C.status     = C.Unfilled
@@ -273,6 +273,8 @@ unfilled123 =
     , C.filledAmount = C.Cost 0
     , C.mAvePriceAndFees = Nothing
     }
+
+canceled123 = unfilled123 {C.status = C.Canceled}
 
 --------------------------------------------------------------------------------
 class FromVal a b where
