@@ -54,29 +54,25 @@ producer interval config proxy state handler = do
             infoMatches oid info = C.orderID info == oid
             dispatch evs = mapM_ handler evs
 
-        closedOIDss <- forM oids $ \oid -> case find (infoMatches oid) infos of
-            Just newInfo -> do
-                oidEvPairs <- atomicallyUpdateConnector (updateConnectorState newInfo oid) state
-                dispatch (snd <$> oidEvPairs)
-                return $ fmap fst $ filter (isClosingEv . snd) oidEvPairs
-            Nothing   -> do
-                newInfo <- intoIO (C.getOrderInfo config oid :: m C.OrderInfo) -- FIX ME! API never fails! No Maybe!
-                oidEvPairs <- atomicallyUpdateConnector (updateConnectorState newInfo oid) state -- FIX ME! blatant DRY violation
-                dispatch (snd <$> oidEvPairs)
-                return $ fmap fst $ filter (isClosingEv . snd) oidEvPairs
+        forM oids $ \oid -> do
+            newInfo <- case find (infoMatches oid) infos of
+                    Just info -> return info
+                    Nothing   -> intoIO (C.getOrderInfo config oid :: m C.OrderInfo) -- FIX ME! API never fails! No Maybe!
 
-        -- removes entries for which we have dispatched a `CancelEv` or `DoneEv` to avoid space leak
-        let closedOIDs = concat closedOIDss
-        -- putStrLn $ "Closed OrderIDs: " <> show closedOIDs
-        forM_ closedOIDs (\oid -> atomicallyUpdateConnector (removeEntry oid) state)
+            fillEvs    <- atomicallyUpdateConnector (updateIfNewer newInfo oid (updateFills newInfo)) state
+            dispatch fillEvs
+
+            closePairs <- atomicallyUpdateConnector (updateIfNewer newInfo oid (updateClose newInfo)) state
+            dispatch $ concat (snd <$> closePairs)
+            forM_ (fst <$> closePairs) (\oid -> atomicallyUpdateConnector (removeEntry oid) state)
 
         threadDelay interval
 
     atomicallyUpdateConnector :: State CoinbeneConnector a -> TVar CoinbeneConnector -> IO a
     atomicallyUpdateConnector updater connector = atomically $ stateTVar connector $ runState updater
 
-    updateConnectorState :: C.OrderInfo -> C.OrderID -> State CoinbeneConnector [(C.OrderID, TradingEv p v q c)]
-    updateConnectorState newInfo oid = do
+    updateIfNewer :: C.OrderInfo -> C.OrderID -> State ConnectorOrderInfo [a] -> State CoinbeneConnector [a]
+    updateIfNewer newInfo oid updater = do
         connectorMap <- get 
         let mCurInfo = lookupMain oid connectorMap
         case mCurInfo of
@@ -87,9 +83,9 @@ producer interval config proxy state handler = do
                 if newTime < curTime -- sanity test
                     then return [] -- order info returned is stale, skip order update
                     else do
-                        let (updatedEntry, pairs) = updateOrder newInfo curInfo
+                        let (as, updatedEntry) = runState updater curInfo   -- updateOrder newInfo curInfo
                         put (adjustMain (const updatedEntry) oid connectorMap)
-                        return pairs
+                        return as
 
     isClosingEv :: TradingEv p v q c -> Bool
     isClosingEv (CancelEv _) = True
@@ -128,6 +124,13 @@ producer interval config proxy state handler = do
 --     -- (average price, fees), nothing means "don't know"
 --     , mAvePriceAndFees :: Maybe (C.Price Scientific, C.Cost Scientific)
 
-    updateOrder :: C.OrderInfo -> ConnectorOrderInfo -> (ConnectorOrderInfo,[(C.OrderID, TradingEv p v q c)])
-    updateOrder newInfo curInfo = (curInfo, []) -- (curInfo, [(undefined , PlaceEv (Just $ COID 5678))])
+    -- -- ORIGINAL
+    -- updateOrder :: C.OrderInfo -> ConnectorOrderInfo -> (ConnectorOrderInfo,[(C.OrderID, TradingEv p v q c)])
+    -- updateOrder newInfo curInfo = (curInfo, []) -- (curInfo, [(undefined , PlaceEv (Just $ COID 5678))])
+
+    updateFills :: C.OrderInfo -> State ConnectorOrderInfo [TradingEv p v q c]
+    updateFills newInfo = return []
+
+    updateClose :: C.OrderInfo -> State ConnectorOrderInfo [(C.OrderID, [TradingEv p v q c])]
+    updateClose newInfo = return []
 
