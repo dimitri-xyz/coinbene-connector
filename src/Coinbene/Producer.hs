@@ -5,6 +5,7 @@ module Coinbene.Producer where
 
 import           Data.Proxy
 import           Data.List                    (find)
+import           Data.Maybe                   (fromMaybe)
 
 import           Control.Monad                (forever)
 import           Control.Monad.State
@@ -22,12 +23,13 @@ import qualified Coinbene as C
 
 ---------------------------------------
 producer
-    :: forall config m p v q c p' v'.  ( C.Exchange config m, HTTP m, MonadTime m, IntoIO m
-                                , Coin p, Coin v
-                                , C.Coin p', C.Coin v'
-                                , (ToFromCB p p'), (ToFromCB v v')
-                                , ToFromCB (QuoteBook p v q c) (C.QuoteBook p' v')
-                                ) 
+    :: forall config m p v q c p' v'.
+        ( C.Exchange config m, HTTP m, MonadTime m, IntoIO m
+        , Coin p, Coin v
+        , C.Coin p', C.Coin v'
+        , (ToFromCB p p'), (ToFromCB v v')
+        , ToFromCB (QuoteBook p v q c) (C.QuoteBook p' v')
+        ) 
     => Int -> config -> Proxy m -> TVar CoinbeneConnector -> Handler (TradingEv p v q c) 
     -> Producer config p v q c
 producer interval config proxy state handler = do
@@ -38,7 +40,7 @@ producer interval config proxy state handler = do
 
   where
     bookThread = forever $ do
-        book <- intoIO $ ( C.getBook config (Proxy :: Proxy (C.Price p')) (Proxy :: Proxy (C.Vol v')) :: m (C.QuoteBook p' v'))
+        book <- intoIO (C.getBook config (Proxy :: Proxy (C.Price p')) (Proxy :: Proxy (C.Vol v')) :: m (C.QuoteBook p' v'))
         handler (BookEv $ fromCB $ book)
         threadDelay interval
 
@@ -50,23 +52,82 @@ producer interval config proxy state handler = do
         -- but we will use snapshot to defined what oids will be looked at in this polling cycle
         let oids = fst <$> keys snapshotMainAuxMap
             infoMatches oid info = C.orderID info == oid
+            dispatch evs = mapM_ handler evs
 
-        events <- forM oids $ \oid -> case find (infoMatches oid) infos of
-            Just info -> updateConnectorTVar oid info state
+        closedOIDss <- forM oids $ \oid -> case find (infoMatches oid) infos of
+            Just newInfo -> do
+                oidEvPairs <- atomicallyUpdateConnector (updateConnectorState newInfo oid) state
+                dispatch (snd <$> oidEvPairs)
+                return $ fmap fst $ filter (isClosingEv . snd) oidEvPairs
             Nothing   -> do
-                info <- intoIO (C.getOrderInfo config oid :: m C.OrderInfo) -- FIX ME! API never fails! No Maybe!
-                updateConnectorTVar oid info state
+                newInfo <- intoIO (C.getOrderInfo config oid :: m C.OrderInfo) -- FIX ME! API never fails! No Maybe!
+                oidEvPairs <- atomicallyUpdateConnector (updateConnectorState newInfo oid) state -- FIX ME! blatant DRY violation
+                dispatch (snd <$> oidEvPairs)
+                return $ fmap fst $ filter (isClosingEv . snd) oidEvPairs
 
-        -- dispatch all events
-        -- ALSO remove entries for `CancelEv` and `DoneEv` events
+        -- removes entries for which we have dispatched a `CancelEv` or `DoneEv` to avoid space leak
+        let closedOIDs = concat closedOIDss
+        -- putStrLn $ "Closed OrderIDs: " <> show closedOIDs
+        forM_ closedOIDs (\oid -> atomicallyUpdateConnector (removeEntry oid) state)
 
         threadDelay interval
 
-    updateConnectorTVar :: C.OrderID -> C.OrderInfo -> TVar CoinbeneConnector -> IO [TradingEv p v q c]
-    updateConnectorTVar oid info connector =
-        atomically $ stateTVar connector $ runState (updateConnectorState oid info)
+    atomicallyUpdateConnector :: State CoinbeneConnector a -> TVar CoinbeneConnector -> IO a
+    atomicallyUpdateConnector updater connector = atomically $ stateTVar connector $ runState updater
 
-    updateConnectorState :: C.OrderID -> C.OrderInfo -> State CoinbeneConnector [TradingEv p v q c]
-    updateConnectorState = error "Not implemented yet dude!"
+    updateConnectorState :: C.OrderInfo -> C.OrderID -> State CoinbeneConnector [(C.OrderID, TradingEv p v q c)]
+    updateConnectorState newInfo oid = do
+        connectorMap <- get 
+        let mCurInfo = lookupMain oid connectorMap
+        case mCurInfo of
+            Nothing -> return [] -- order with current orderID has disappeared, skip its update in this polling cycle
+            Just (mCoid, curInfo) -> do
+                let newTime = fromMaybe (C.created newInfo) (C.mModified newInfo)
+                    curTime = fromMaybe 0                   (mModified   curInfo) -- force update if missing
+                if newTime < curTime -- sanity test
+                    then return [] -- order info returned is stale, skip order update
+                    else do
+                        let (updatedEntry, pairs) = updateOrder newInfo curInfo
+                        put (adjustMain (const updatedEntry) oid connectorMap)
+                        return pairs
 
+    isClosingEv :: TradingEv p v q c -> Bool
+    isClosingEv (CancelEv _) = True
+    isClosingEv (DoneEv   _) = True
+    isClosingEv _            = False
+
+    removeEntry :: C.OrderID -> State CoinbeneConnector ()
+    removeEntry oid = do
+        dict <- get
+        put (deleteMain oid dict)
+
+-- data OrderInfo =
+--     LimitOrder
+--     { market     :: String
+--     , oSide      :: OrderSide
+--     , limitPrice :: Price Scientific
+--     , limitVol   :: Vol   Scientific
+--     , orderID    :: OrderID
+--     , created      :: MilliEpoch
+--     , mModified    :: Maybe MilliEpoch
+--     , status       :: OrderStatus
+--     , filledVol    :: Vol  Scientific
+--     , filledAmount :: Cost Scientific
+--     , mAvePriceAndFees :: Maybe (Price Scientific, Cost Scientific) -- (average price, fees), nothing means "don't know"
+--     }
+
+-- data ConnectorOrderInfo =
+--     FillStatus
+--     { oSide        :: C.OrderSide
+--     , limitPrice   :: C.Price Scientific
+--     , limitVol     :: C.Vol   Scientific
+--     , mModified    :: Maybe C.MilliEpoch
+--     , status       :: C.OrderStatus
+--     , filledVol    :: C.Vol  Scientific
+--     , filledAmount :: C.Cost Scientific
+--     -- (average price, fees), nothing means "don't know"
+--     , mAvePriceAndFees :: Maybe (C.Price Scientific, C.Cost Scientific)
+
+    updateOrder :: C.OrderInfo -> ConnectorOrderInfo -> (ConnectorOrderInfo,[(C.OrderID, TradingEv p v q c)])
+    updateOrder newInfo curInfo = (curInfo, []) -- (curInfo, [(undefined , PlaceEv (Just $ COID 5678))])
 

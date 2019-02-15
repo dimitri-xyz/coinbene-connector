@@ -135,8 +135,8 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
         threadDelay 5000000
         cancel pthread
 
-        state <- readTVarIO connectorState
-        print state
+        -- state <- readTVarIO connectorState
+        -- print state
 
         ems <- readIORef evsRef
         assertEqual "Some events were not issued" [] ems
@@ -166,7 +166,8 @@ data ExchangeMockState p v =
         , getInfos :: [C.OrderInfo]
         } deriving (Show, Eq)
 
-initialExchangeMockState = EMS [bk1', bk2', bk3', bk1', bk2'] 0 [] [[],[],[],[],[]] []
+initialExchangeMockState = EMS [bk1', bk2', bk3', bk1', bk2'] 0 [] [[],[],[],[],[]] 
+    [unfilled123, unfilled123, unfilled123, unfilled123, unfilled123, unfilled123]
 
 data Request p v
     = NewLimit      C.OrderSide (C.Price p) (C.Vol v) C.OrderID
@@ -257,6 +258,21 @@ bk1, bk2 :: forall p v q c. (Coin p, Coin v) => QuoteBook p v () ()
 bk1 = QuoteBook {asks = [qa1, qa2, qa3, qa4], bids = [qb1, qb2], counter = ()}
 bk2 = QuoteBook {asks = [qa2], bids = [], counter = ()}
 bk3 = QuoteBook {asks = [], bids = [], counter = ()}
+
+unfilled123 =
+    C.LimitOrder
+    { C.market     = "btcbrl"
+    , C.oSide      = C.Ask
+    , C.limitPrice = C.Price 99000
+    , C.limitVol   = C.Vol   0.005
+    , C.orderID    = C.OrderID ":oid:123"
+    , C.created    = C.MilliEpoch 0
+    , C.mModified  = Nothing
+    , C.status     = C.Unfilled
+    , C.filledVol  = C.Vol 0
+    , C.filledAmount = C.Cost 0
+    , C.mAvePriceAndFees = Nothing
+    }
 
 --------------------------------------------------------------------------------
 class FromVal a b where

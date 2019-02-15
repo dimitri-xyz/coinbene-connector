@@ -163,5 +163,10 @@ deleteAux k2 map = case lookupAux k2 map of
     Nothing      -> map
     Just (k1, _) -> deleteMain k1 map
 
-keys :: MainAuxMap k1 k2 v1 -> [(k1, Maybe k2)]
+keys :: MainAuxMap k1 k2 v -> [(k1, Maybe k2)]
 keys map = toList (fst <$> mainM map)
+
+adjustMain :: (Eq k1, Hashable k1) => (v -> v) -> k1 -> MainAuxMap k1 k2 v -> MainAuxMap k1 k2 v
+adjustMain f k1 hmap =
+    let f' (k, v) = (k, f v)
+     in hmap {mainM = adjust f' k1 (mainM hmap)}
