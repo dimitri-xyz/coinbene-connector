@@ -27,7 +27,7 @@ coinbeneInit
     -> IO (Producer config p v q c, Executor config p v, Terminator config)
 
 coinbeneInit interval config proxy fireEvents = do
-    let connectorState = undefined
+    connectorState <- newTVarIO emptyCoinbeneConnector
     return  ( producer interval config proxy connectorState fireEvents
             , executor          config proxy connectorState fireEvents
             , terminator        config proxy connectorState fireEvents)

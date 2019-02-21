@@ -27,6 +27,7 @@ import           Market.Interface
 import           Coinbene.Adapter
 import           Coinbene.Executor
 import           Coinbene.Producer
+import           Coinbene.Connector
 
 import           Market.Coins (BTC(..), USD(..), BRL(..), LTC(..))
 
@@ -49,10 +50,10 @@ instance IsOption API_KEY where
 --------------------------------------------------------------------------------
 main = defaultMainWithIngredients ings $
     askOption $ \apikey ->
-    askOption $ \apiid -> 
-    withResource 
+    askOption $ \apiid ->
+    withResource
         (mkConfig {- mkMockConfig defaultExchangeState -} (apiid :: API_ID) (apikey :: API_KEY))
-        (\_ -> return ()) 
+        (\_ -> return ())
         (tests (Proxy :: Proxy (Price BRL)) (Proxy :: Proxy (Vol BTC)))
   where
     ings = includingOptions
@@ -60,7 +61,7 @@ main = defaultMainWithIngredients ings $
         , (Option (Proxy :: Proxy API_KEY))
         ] : defaultIngredients
 
-    mkConfig apiid apikey = do 
+    mkConfig apiid apikey = do
         manager <- newManager tlsManagerSettings
         return $ Coinbene manager apiid apikey
 
@@ -78,14 +79,14 @@ the state as it goes in and out of IO. So, IntoIO is not sufficient. We will jus
 do this in IO but change the configuration type to a mock one and write the
 corresponding instance for testing.
 
--} 
+-}
 --------------------------------------------------------------------------------
-tests :: forall config p v q c p' v'. 
-      (C.Exchange config IO, Coin p, Coin v, C.Coin p', C.Coin v', Num p', Num v', ToFromCB p p', ToFromCB v v') 
+tests :: forall config p v q c p' v'.
+      (C.Exchange config IO, Coin p, Coin v, C.Coin p', C.Coin v', Num p', Num v', ToFromCB p p', ToFromCB v v')
       => Proxy (Price p) -> Proxy (Vol v) -> IO config -> TestTree
 tests _ _ getConfig = testGroup " Coinbene Connector Tests"
     [ testCase "Executor - PlaceLimit test" $ do
-        -- "Despite it being an IO action, the resource it returns 
+        -- "Despite it being an IO action, the resource it returns
         -- will be acquired only once and shared across all the tests in the tree."
         config         <- getConfig
         connectorState <- newTVarIO emptyCoinbeneConnector
@@ -95,11 +96,11 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
             connectorState
             (\_ -> return ()) -- no event firing
             (PlaceLimit Ask (Price 22000 :: Price p) (Vol 0.005 :: Vol v) Nothing)
-    
+
     , testCase "Executor - Place then CancelLimit test" $ do
         config         <- getConfig
         connectorState <- newTVarIO emptyCoinbeneConnector
-        executor config (Proxy :: Proxy IO) connectorState (\ev -> return () {- putStrLn "ORDER PLACED!" -}) 
+        executor config (Proxy :: Proxy IO) connectorState (\ev -> return () {- putStrLn "ORDER PLACED!" -})
                             (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 0))
         executor config (Proxy :: Proxy IO) connectorState undefined
                             ((CancelLimit $ COID 0) :: Action p v)
@@ -110,7 +111,7 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
     --
 
     , testCase "Producer - orderbook test" $ do
-        config         <- mkMockConfig defaultExchangeState undefined undefined 
+        config         <- mkMockConfig defaultExchangeState undefined undefined
         connectorState <- newTVarIO emptyCoinbeneConnector
         evsRef         <- newIORef
             [ BookEv bk1, BookEv bk2, BookEv bk3, BookEv bk1, BookEv bk2 :: TradingEv p v () ()]
@@ -127,7 +128,7 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
         evsRef         <- newIORef [ PlaceEv  (Just $ COID 123)
                                    , CancelEv (Just $ COID 123) :: TradingEv p v () ()
                                    ]
-        -- calling the executors before starting the producer guarantees the orders have been 
+        -- calling the executors before starting the producer guarantees the orders have been
         -- placed (and are in the connector's state) before the producer starts
         executor config (Proxy :: Proxy IO) connectorState (comparingEventHandler evsRef)
                             (PlaceLimit Ask (Price 99000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 123))
@@ -148,7 +149,7 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
                                    , PlaceEv  (Just $ COID 789)
 
                                    , FillsEv  [FillEv Ask (Price 120000) (Vol 0.001) (Just $ COID 789)] -- first cycle
-                                   , FillsEv  [FillEv Bid (Price     77) (Vol 0.003) (Just $ COID 456)] 
+                                   , FillsEv  [FillEv Bid (Price     77) (Vol 0.003) (Just $ COID 456)]
                                    , DoneEv   (Just $ COID 456) :: TradingEv p v () ()
 
                                    , FillsEv  [FillEv Ask (Price  99000) (Vol 0.002) (Just $ COID 123)] -- second cycle
@@ -159,7 +160,7 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
                                    , DoneEv   (Just $ COID 789)
                                    ]
 
-        -- calling the executors before starting the producer guarantees the orders have been 
+        -- calling the executors before starting the producer guarantees the orders have been
         -- placed (and are in the connector's state) before the producer starts
         executor config (Proxy :: Proxy IO) connectorState (comparingEventHandler evsRef)
                             (PlaceLimit Ask (Price 99000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 123))
@@ -169,6 +170,44 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
                             (PlaceLimit Ask (Price 88000 :: Price p) (Vol 0.004 :: Vol v) (Just $ COID 789))
 
         pthread <- async $ producer 1000000 config (Proxy :: Proxy IO) connectorState (dropBookEvs $ comparingEventHandler evsRef)
+        link pthread
+
+        threadDelay 5000000
+        cancel pthread
+
+        -- state <- readTVarIO connectorState
+        -- print state
+
+        ems <- readIORef evsRef
+        assertEqual "Some events were not issued" [] ems
+
+    , testCase "Full connector - Partial execution detection" $ do
+        config         <- mkMockConfig partialFillMockState undefined undefined
+        evsRef         <- newIORef [ PlaceEv  (Just $ COID 123) -- before producer starts
+                                   , PlaceEv  (Just $ COID 456)
+                                   , PlaceEv  (Just $ COID 789)
+
+                                   , FillsEv  [FillEv Ask (Price 120000) (Vol 0.001) (Just $ COID 789)] -- first cycle
+                                   , FillsEv  [FillEv Bid (Price     77) (Vol 0.003) (Just $ COID 456)]
+                                   , DoneEv   (Just $ COID 456) :: TradingEv p v () ()
+
+                                   , FillsEv  [FillEv Ask (Price  99000) (Vol 0.002) (Just $ COID 123)] -- second cycle
+
+                                   , CancelEv (Just $ COID 123) -- third cycle
+
+                                   , FillsEv  [FillEv Ask (Price  88000) (Vol 0.003) (Just $ COID 789)] -- 4th cycle
+                                   , DoneEv   (Just $ COID 789)
+                                   ]
+
+        (producer, executor, terminator) <- coinbeneInit 1000000 config (Proxy :: Proxy IO) (dropBookEvs $ comparingEventHandler evsRef)
+
+        -- calling the executors before starting the producer guarantees the orders have been
+        -- placed (and are in the connector's state) before the producer starts
+        executor (PlaceLimit Ask (Price 99000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 123))
+        executor (PlaceLimit Bid (Price    77 :: Price p) (Vol 0.003 :: Vol v) (Just $ COID 456))
+        executor (PlaceLimit Ask (Price 88000 :: Price p) (Vol 0.004 :: Vol v) (Just $ COID 789))
+
+        pthread <- async $ producer
         link pthread
 
         threadDelay 5000000
@@ -214,7 +253,7 @@ data Request p v
     | GetOrderInfo  C.OrderID
     | Cancel        C.OrderID
     | GetOpenOrders
-    | GetBalances 
+    | GetBalances
     | GetTrades
     deriving (Show, Eq)
 
@@ -240,7 +279,7 @@ instance forall p v . (Show p, Show v, C.Coin p, C.Coin v) => C.Exchange (MockCo
         update ems = (ems {books = tail (books ems)}, head (books ems))
 
     cancel (MC ref) oid = do
-        -- putStrLn "CANCEL" 
+        -- putStrLn "CANCEL"
         oid <- atomicModifyIORef' ref (update oid)
         -- putStrLn $ "Cancelling: " <> show oid
         return oid
@@ -255,15 +294,15 @@ instance forall p v . (Show p, Show v, C.Coin p, C.Coin v) => C.Exchange (MockCo
       where
         update ems = (ems {getOpens = tail (getOpens ems)}, head (getOpens ems))
 
-    getOrderInfo (MC ref) oid = do 
-        -- putStrLn $ "GET ORDER INFO - " <> show oid 
+    getOrderInfo (MC ref) oid = do
+        -- putStrLn $ "GET ORDER INFO - " <> show oid
         info <- atomicModifyIORef' ref update
         -- putStrLn $ "Order Info: " <> show info
         return info
       where
-        update ems = if (C.orderID $ head $ getInfos ems) == oid 
+        update ems = if (C.orderID $ head $ getInfos ems) == oid
             then (ems {getInfos = tail (getInfos ems)}, head (getInfos ems))
-            else error $ "Mismatch on call to getOrderInfo - requested: " <> show oid 
+            else error $ "Mismatch on call to getOrderInfo - requested: " <> show oid
                          <> " available: " <> show (C.orderID $ head $ getInfos ems)
 
 
@@ -272,7 +311,7 @@ instance forall p v . (Show p, Show v, C.Coin p, C.Coin v) => C.Exchange (MockCo
 
 --------------------------------------------------------------------------------
 class FromVal a b where
-    from :: a -> b 
+    from :: a -> b
 
 instance (C.Coin a, C.Coin b) => FromVal (C.Price a) (C.Price b) where
     from (C.Price a) = C.Price $ C.readBare $ C.showBare a
@@ -280,15 +319,15 @@ instance (C.Coin a, C.Coin b) => FromVal (C.Price a) (C.Price b) where
 instance (C.Coin a, C.Coin b) => FromVal (C.Vol a) (C.Vol b) where
     from (C.Vol a) = C.Vol $ C.readBare $ C.showBare a
 
-instance (FromVal (C.Price p) (C.Price p'), FromVal (C.Vol v) (C.Vol v')) 
+instance (FromVal (C.Price p) (C.Price p'), FromVal (C.Vol v) (C.Vol v'))
     => FromVal (C.AskQuote p v) (C.AskQuote p' v') where
-    from q@(AskQ { aqPrice = p, aqQuantity = v}) = q { aqPrice = from p, aqQuantity = from v} 
+    from q@(AskQ { aqPrice = p, aqQuantity = v}) = q { aqPrice = from p, aqQuantity = from v}
 
-instance (FromVal (C.Price p) (C.Price p'), FromVal (C.Vol v) (C.Vol v')) 
+instance (FromVal (C.Price p) (C.Price p'), FromVal (C.Vol v) (C.Vol v'))
     => FromVal (C.BidQuote p v) (C.BidQuote p' v') where
-    from q@(BidQ { bqPrice = p, bqQuantity = v}) = q { bqPrice = from p, bqQuantity = from v} 
+    from q@(BidQ { bqPrice = p, bqQuantity = v}) = q { bqPrice = from p, bqQuantity = from v}
 
-instance (FromVal (C.AskQuote p v) (C.AskQuote p' v'), FromVal (C.BidQuote p v) (C.BidQuote p' v')) 
+instance (FromVal (C.AskQuote p v) (C.AskQuote p' v'), FromVal (C.BidQuote p v) (C.BidQuote p' v'))
     => FromVal (C.QuoteBook p v) (C.QuoteBook p' v') where
     from qb@(C.QuoteBook { qbBids = bs, qbAsks = as}) =
          qb { qbBids = from <$> bs
@@ -300,7 +339,7 @@ instance (FromVal (C.AskQuote p v) (C.AskQuote p' v'), FromVal (C.BidQuote p v) 
 --------------------------------------------------------------------------------
 -- Quotebooks
 qa1', qa2', qa3', qa4' :: forall p v. (Num p, Num v, C.Coin p, C.Coin v) => C.AskQuote p v
-qb1', qb2'             :: forall p v. (Num p, Num v, C.Coin p, C.Coin v) => C.BidQuote p v 
+qb1', qb2'             :: forall p v. (Num p, Num v, C.Coin p, C.Coin v) => C.BidQuote p v
 
 qa1' = C.AskQ (C.Price 1000) (C.Vol 1)
 qa2' = C.AskQ (C.Price 1100) (C.Vol 3)
@@ -311,14 +350,14 @@ qb1' = C.BidQ (C.Price  900) (C.Vol 2)
 qb2' = C.BidQ (C.Price  800) (C.Vol 1)
 
 bk1', bk2' :: forall p v q c. (Num p, Num v, C.Coin p, C.Coin v) => C.QuoteBook p v
-bk1' = C.QuoteBook { C.qbAsks = [qa1', qa2', qa3', qa4'], C.qbBids = [qb1', qb2'] } 
-bk2' = C.QuoteBook { C.qbAsks = [qa2'], C.qbBids = [] } 
-bk3' = C.QuoteBook { C.qbAsks = [], C.qbBids = [] } 
+bk1' = C.QuoteBook { C.qbAsks = [qa1', qa2', qa3', qa4'], C.qbBids = [qb1', qb2'] }
+bk2' = C.QuoteBook { C.qbAsks = [qa2'], C.qbBids = [] }
+bk3' = C.QuoteBook { C.qbAsks = [], C.qbBids = [] }
 
                     ------------ mirrors ------------
 
-qa1, qa2, qa3, qa4 :: forall p v q. (Coin p, Coin v) => Quote p v () 
-qb1, qb2           :: forall p v q. (Coin p, Coin v) => Quote p v () 
+qa1, qa2, qa3, qa4 :: forall p v q. (Coin p, Coin v) => Quote p v ()
+qb1, qb2           :: forall p v q. (Coin p, Coin v) => Quote p v ()
 
 qa1 = Quote Ask (Price 1000) (Vol 1) ()
 qa2 = Quote Ask (Price 1100) (Vol 3) ()
@@ -352,13 +391,13 @@ unfilled123 =
 
 canceled123 = unfilled123 {C.status = C.Canceled}
 
-partiallyFilled123 = 
-    unfilled123 
+partiallyFilled123 =
+    unfilled123
         { C.status = C.PartiallyFilled
         , C.filledVol = C.Vol 0.002
         , C.filledAmount = C.Cost 198
         , C.mAvePriceAndFees = Just (C.Price 99000, C.Cost 0.01)
-        } 
+        }
 
 partiallyCanceled123 = partiallyFilled123 {C.status = C.Canceled}
 
@@ -378,13 +417,13 @@ unfilled456 =
     , C.mAvePriceAndFees = Nothing
     }
 
-done456 = 
-    unfilled456 
+done456 =
+    unfilled456
     { C.status = C.Filled
     , C.filledVol = C.Vol 0.003
     , C.filledAmount = C.Cost 0.231
     , C.mAvePriceAndFees = Just (C.Price 77, C.Cost 0.002)
-    } 
+    }
 
 ----------------------------------------
 unfilled789 =
@@ -402,30 +441,30 @@ unfilled789 =
     , C.mAvePriceAndFees = Nothing
     }
 
-partiallyFilled789 = 
-    unfilled789 
+partiallyFilled789 =
+    unfilled789
         { C.status = C.PartiallyFilled
         , C.filledVol = C.Vol 0.001
         , C.filledAmount = C.Cost 120
         , C.mAvePriceAndFees = Just (C.Price 120000, C.Cost 0.12)
-        } 
+        }
 
-done789 = 
-    partiallyFilled789 
+done789 =
+    partiallyFilled789
     { C.status = C.Filled
     , C.filledVol = C.Vol 0.004
     , C.filledAmount = C.Cost 384
     , C.mAvePriceAndFees = Just (C.Price 96000, C.Cost 0.2)
-    } 
+    }
 
 
 --------------------------------------------------------------------------------
 -- Exchange API responses
 
-defaultExchangeState = EMS [bk1', bk2', bk3', bk1', bk2'] 0 [] [[],[],[],[],[]] 
+defaultExchangeState = EMS [bk1', bk2', bk3', bk1', bk2'] 0 [] [[],[],[],[],[]]
     [unfilled123, unfilled123, canceled123]
 
-partialFillMockState = EMS [bk1', bk2', bk3', bk1', bk2'] 0 [] 
+partialFillMockState = EMS [bk1', bk2', bk3', bk1', bk2'] 0 []
     -- each first line entry starts a producer cycle
-    [[done456]                       , [partiallyFilled123, partiallyFilled789] ,[partiallyFilled789] , [],[],[]] 
+    [[done456]                       , [partiallyFilled123, partiallyFilled789] ,[partiallyFilled789] , [],[],[]]
     [ partiallyFilled789, unfilled123,                                            partiallyCanceled123,  done789]
