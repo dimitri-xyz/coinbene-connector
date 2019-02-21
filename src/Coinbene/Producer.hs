@@ -29,8 +29,8 @@ producer
         , C.Coin p', C.Coin v'
         , (ToFromCB p p'), (ToFromCB v v')
         , ToFromCB (QuoteBook p v q c) (C.QuoteBook p' v')
-        ) 
-    => Int -> config -> Proxy m -> TVar CoinbeneConnector -> Handler (TradingEv p v q c) 
+        )
+    => Int -> config -> Proxy m -> TVar CoinbeneConnector -> Handler (TradingEv p v q c)
     -> Producer config p v q c
 producer interval config proxy state handler = do
     bkThread <- async bookThread
@@ -122,7 +122,7 @@ updateFills mcoid newInfo = do
                                 then limitPrice curInfo -- must have been resting on the book (not immediately executed)
                                 else case C.mAvePriceAndFees newInfo of
                                         Just (p, _) -> p -- may have immediately executed before sitting on book (but previous executed vol is zero)
-                                        Nothing     -> error "Call to get order info did not return average price, but order has executed" 
+                                        Nothing     -> error "Call to get order info did not return average price, but order has executed"
 
             return [FillsEv [FillEv (fromCB $ C.oSide newInfo) (realToFrac fillPrice) (realToFrac fillVol) mcoid]]
 

@@ -122,28 +122,28 @@ lookupMain k1 map = lookup k1 (mainM map) -- does NOT check for inconsistency
 
 lookupAux  :: (Eq k1, Hashable k1, Eq k2, Hashable k2) => k2 -> MainAuxMap k1 k2 v -> Maybe (      k1, v)
 lookupAux k2 map =
-    case lookup k2 (auxM map) of 
+    case lookup k2 (auxM map) of
         Nothing -> Nothing
         Just k1 -> case lookupMain k1 map of
             Nothing        -> error "lookupAux - missing entry for primary key"
-            Just (mk2', v) -> if mk2' == Just k2 
-                then Just (k1, v) 
+            Just (mk2', v) -> if mk2' == Just k2
+                then Just (k1, v)
                 else error "lookupAux - main entry linking back to wrong secondary key"
 
 -- | insertMain inserts a new association
--- if k1 does not exist then k2 should not exist or be `Nothing` 
+-- if k1 does not exist then k2 should not exist or be `Nothing`
 -- if k1 exist then k2 should match existing value
 -- otherwise error
 insertMain :: (Eq k1, Hashable k1, Eq k2, Hashable k2) => k1 -> Maybe k2 -> v -> MainAuxMap k1 k2 v -> MainAuxMap k1 k2 v
 insertMain k1 mk2 v map = case lookupMain k1 map of
-    Nothing -> case mk2 of 
+    Nothing -> case mk2 of
                 Nothing -> insertOverwritePair k1 mk2 v map -- new pair (k2 = Nothing)
                 Just k2 -> case lookupAux k2 map of
                     Nothing -> insertOverwritePair k1 mk2 v map -- new pair, previously unused k2
                     Just _  -> error "insert - cannot insert in map: cannot create entry with already used secondary key"
     Just (mk2', _) -> if mk2 == mk2'
             -- both exist, and are associated to each other, overwrite
-            then insertOverwritePair k1 mk2 v map 
+            then insertOverwritePair k1 mk2 v map
             -- both exist, but they are not associated to each other
             else error "insert - cannot insert keys in map: cannot overwrite entry with different secondary key"
   where

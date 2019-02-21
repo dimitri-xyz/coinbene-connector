@@ -23,8 +23,8 @@ executor
                                 , Coin p, Coin v
                                 , C.Coin p', C.Coin v'
                                 , (ToFromCB p p'), (ToFromCB v v')
-                                ) 
-    => config -> Proxy m -> TVar CoinbeneConnector -> Handler (TradingEv p v q c) 
+                                )
+    => config -> Proxy m -> TVar CoinbeneConnector -> Handler (TradingEv p v q c)
     -> Executor config p v
 executor config proxy state handler (PlaceLimit sd price@(Price p) vol@(Vol v) mCOID) = do
     oid <- intoIO $ ( (C.placeLimit config (toCB sd) (toCB price) (toCB vol) ) :: m C.OrderID )
@@ -32,7 +32,7 @@ executor config proxy state handler (PlaceLimit sd price@(Price p) vol@(Vol v) m
     handler (PlaceEv mCOID)
     insertNewOrderInConnectorState oid mCOID (toCB sd) (realToFrac p) (realToFrac v) state
   where
-    insertNewOrderInConnectorState 
+    insertNewOrderInConnectorState
         :: C.OrderID -> Maybe ClientOID -> C.OrderSide -> C.Price Scientific -> C.Vol Scientific
         -> TVar CoinbeneConnector -> IO ()
     insertNewOrderInConnectorState oid mcoid sd p v connector =
@@ -59,7 +59,7 @@ executor config proxy state handler (PlaceLimit sd price@(Price p) vol@(Vol v) m
 executor config proxy state _handler (CancelLimit coid) = do
     moid <- lookupOID coid state
     case moid of
-        Nothing  -> error $ "executor - could not cancel order for ClientOID: " 
+        Nothing  -> error $ "executor - could not cancel order for ClientOID: "
                             <> show coid <> " no matching OrderID."
         Just oid -> do
             intoIO ( C.cancel config oid :: m C.OrderID )
@@ -75,8 +75,8 @@ executor config proxy state _handler (CancelLimit coid) = do
         return $ fmap fst $ lookupAux coid orderMap
 
 
-terminator 
-    :: forall config m p v q c. (HTTP m, MonadTime m, IntoIO m, Coin p, Coin v) 
-    => config -> Proxy m -> TVar CoinbeneConnector -> Handler (TradingEv p v q c) 
+terminator
+    :: forall config m p v q c. (HTTP m, MonadTime m, IntoIO m, Coin p, Coin v)
+    => config -> Proxy m -> TVar CoinbeneConnector -> Handler (TradingEv p v q c)
     -> Terminator config
 terminator _config _proxy _state _handler = hPutStrLn stderr "\nExecutor exiting!"
