@@ -7,6 +7,9 @@ import           Data.Proxy
 import           Data.Hashable
 import           Control.Monad.Time
 import           Control.Concurrent.STM.TVar
+import           System.Environment           (getEnv)
+import           Network.HTTP.Client          (newManager)
+import           Network.HTTP.Client.TLS      (tlsManagerSettings)
 
 import qualified Coinbene as C
 
@@ -32,5 +35,11 @@ coinbeneInit interval config proxy fireEvents = do
             , executor          config proxy connectorState fireEvents
             , terminator        config proxy connectorState fireEvents)
 
+getCoinbeneConfig :: IO Coinbene
+getCoinbeneConfig = do
+        apiid  <- getEnv "COINBENE_API_ID"
+        apikey <- getEnv "COINBENE_API_KEY"
+        manager <- newManager tlsManagerSettings
+        return $ Coinbene manager (C.API_ID apiid) (C.API_KEY apikey)
 
 

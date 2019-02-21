@@ -35,6 +35,8 @@ library
                      , market-model
                      , async
                      , scientific
+                     , http-client
+                     , http-client-tls
 
 test-suite test-coinbene-connector
   type:                exitcode-stdio-1.0
