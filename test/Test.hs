@@ -11,7 +11,7 @@ import           Data.Proxy
 import           Data.IORef
 import           Control.Monad.State
 import           Control.Monad.Time
-import           System.IO                    (hPutStrLn, stderr)
+-- import           System.IO                    (hPutStrLn, stderr)
 import           Control.Concurrent           (threadDelay)
 import           Control.Concurrent.Async     (async, link, cancel)
 import           Control.Concurrent.STM.TVar  (newTVarIO, readTVarIO)
@@ -34,6 +34,8 @@ import           Market.Coins (BTC(..), USD(..), BRL(..), LTC(..))
 import qualified Coinbene as C
 import           Coinbene (API_ID(..), API_KEY(..), qbAsks, qbBids, AskQuote(..), BidQuote(..))
 
+import           Debug.Trace
+
 --------------------------------------------------------------------------------
 instance IsOption API_ID where
     defaultValue = error "User must supply API ID (on command line or environment) for authenticated tests."
@@ -52,23 +54,29 @@ main = defaultMainWithIngredients ings $
     askOption $ \apikey ->
     askOption $ \apiid ->
     withResource
-        (mkConfig {- mkMockConfig defaultExchangeState -} (apiid :: API_ID) (apikey :: API_KEY))
+        (mkConfig -- mkMockConfig defaultExchangeState
+            C.Silent -- verbosity level for coinbene-api library
+            (apiid  :: API_ID)
+            (apikey :: API_KEY))
         (\_ -> return ())
-        (tests (Proxy :: Proxy (Price BRL)) (Proxy :: Proxy (Vol BTC)))
+        (tests
+            C.Silent -- verbosity level for connector itself
+            (Proxy :: Proxy (Price BRL))
+            (Proxy :: Proxy (Vol BTC)))
   where
     ings = includingOptions
         [ (Option (Proxy :: Proxy API_ID))
         , (Option (Proxy :: Proxy API_KEY))
         ] : defaultIngredients
 
-    mkConfig apiid apikey = do
+    mkConfig verbosity apiid apikey = do
         manager <- newManager tlsManagerSettings
-        return $ Coinbene manager apiid apikey
+        return $ Coinbene manager apiid apikey verbosity
 
-mkMockConfig :: ExchangeMockState C.BRL C.BTC -> id -> key -> IO (MockCoinbene C.BRL C.BTC)
-mkMockConfig initialExchangeMockState _ _ = do
+mkMockConfig :: ExchangeMockState C.BRL C.BTC -> C.Verbosity -> id -> key -> IO (MockCoinbene C.BRL C.BTC)
+mkMockConfig initialExchangeMockState verbosity _ _ = do
     bks <- newIORef initialExchangeMockState
-    return (MC bks)
+    return (MC bks verbosity)
 
 --------------------------------------------------------------------------------
 {- # Testing instance for `Exchange config m`
@@ -83,26 +91,27 @@ corresponding instance for testing.
 --------------------------------------------------------------------------------
 tests :: forall config p v q c p' v'.
       (C.Exchange config IO, Coin p, Coin v, C.Coin p', C.Coin v', Num p', Num v', ToFromCB p p', ToFromCB v v')
-      => Proxy (Price p) -> Proxy (Vol v) -> IO config -> TestTree
-tests _ _ getConfig = testGroup " Coinbene Connector Tests"
+      => C.Verbosity -> Proxy (Price p) -> Proxy (Vol v) -> IO config -> TestTree
+tests verbosity _ _ getConfig = testGroup " Coinbene Connector Tests"
     [ testCase "Executor - PlaceLimit test" $ do
         -- "Despite it being an IO action, the resource it returns
         -- will be acquired only once and shared across all the tests in the tree."
         config         <- getConfig
         connectorState <- newTVarIO emptyCoinbeneConnector
         executor
+            verbosity
             config
             (Proxy :: Proxy IO)
             connectorState
             (\_ -> return ()) -- no event firing
-            (PlaceLimit Ask (Price 22000 :: Price p) (Vol 0.005 :: Vol v) Nothing)
+            (PlaceLimit Ask (Price 22000 :: Price p) (Vol 0.002 :: Vol v) Nothing)
 
     , testCase "Executor - Place then CancelLimit test" $ do
         config         <- getConfig
         connectorState <- newTVarIO emptyCoinbeneConnector
-        executor config (Proxy :: Proxy IO) connectorState (\ev -> return () {- putStrLn "ORDER PLACED!" -})
-                            (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 0))
-        executor config (Proxy :: Proxy IO) connectorState undefined
+        executor verbosity config (Proxy :: Proxy IO) connectorState (\ev -> traceOn (verbosity >= C.Verbose) "order placed!" (return ()) )
+                            (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.002 :: Vol v) (Just $ COID 0))
+        executor verbosity config (Proxy :: Proxy IO) connectorState undefined
                             ((CancelLimit $ COID 0) :: Action p v)
 
     ---------- Tests that only apply to the Mocking Framework ----------
@@ -111,28 +120,28 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
     --
 
     , testCase "Producer - orderbook test" $ do
-        config         <- mkMockConfig defaultExchangeState undefined undefined
+        config         <- mkMockConfig defaultExchangeState C.Silent undefined undefined
         connectorState <- newTVarIO emptyCoinbeneConnector
         evsRef         <- newIORef
             [ BookEv bk1, BookEv bk2, BookEv bk3, BookEv bk1, BookEv bk2 :: TradingEv p v () ()]
 
-        pthread <- async $ producer 1000000 config (Proxy :: Proxy IO) connectorState (comparingEventHandler evsRef)
+        pthread <- async $ producer 1000000 verbosity config (Proxy :: Proxy IO) connectorState (comparingEventHandler evsRef)
         link pthread
 
         threadDelay 5000000
         cancel pthread
 
     , testCase "Producer - cancellation detection" $ do
-        config         <- mkMockConfig defaultExchangeState undefined undefined
+        config         <- mkMockConfig defaultExchangeState C.Silent undefined undefined
         connectorState <- newTVarIO emptyCoinbeneConnector
         evsRef         <- newIORef [ PlaceEv  (Just $ COID 123)
                                    , CancelEv (Just $ COID 123) :: TradingEv p v () ()
                                    ]
         -- calling the executors before starting the producer guarantees the orders have been
         -- placed (and are in the connector's state) before the producer starts
-        executor config (Proxy :: Proxy IO) connectorState (comparingEventHandler evsRef)
+        executor verbosity config (Proxy :: Proxy IO) connectorState (comparingEventHandler evsRef)
                             (PlaceLimit Ask (Price 99000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 123))
-        pthread <- async $ producer 1000000 config (Proxy :: Proxy IO) connectorState (dropBookEvs $ comparingEventHandler evsRef)
+        pthread <- async $ producer 1000000 verbosity config (Proxy :: Proxy IO) connectorState (dropBookEvs $ comparingEventHandler evsRef)
         link pthread
 
         threadDelay 5000000
@@ -142,7 +151,7 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
         assertEqual "Some events were not issued" [] ems
 
     , testCase "Producer - Partial execution detection" $ do
-        config         <- mkMockConfig partialFillMockState undefined undefined
+        config         <- mkMockConfig partialFillMockState C.Silent undefined undefined
         connectorState <- newTVarIO emptyCoinbeneConnector
         evsRef         <- newIORef [ PlaceEv  (Just $ COID 123) -- before producer starts
                                    , PlaceEv  (Just $ COID 456)
@@ -162,14 +171,14 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
 
         -- calling the executors before starting the producer guarantees the orders have been
         -- placed (and are in the connector's state) before the producer starts
-        executor config (Proxy :: Proxy IO) connectorState (comparingEventHandler evsRef)
+        executor verbosity config (Proxy :: Proxy IO) connectorState (comparingEventHandler evsRef)
                             (PlaceLimit Ask (Price 99000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 123))
-        executor config (Proxy :: Proxy IO) connectorState (comparingEventHandler evsRef)
+        executor verbosity config (Proxy :: Proxy IO) connectorState (comparingEventHandler evsRef)
                             (PlaceLimit Bid (Price    77 :: Price p) (Vol 0.003 :: Vol v) (Just $ COID 456))
-        executor config (Proxy :: Proxy IO) connectorState (comparingEventHandler evsRef)
+        executor verbosity config (Proxy :: Proxy IO) connectorState (comparingEventHandler evsRef)
                             (PlaceLimit Ask (Price 88000 :: Price p) (Vol 0.004 :: Vol v) (Just $ COID 789))
 
-        pthread <- async $ producer 1000000 config (Proxy :: Proxy IO) connectorState (dropBookEvs $ comparingEventHandler evsRef)
+        pthread <- async $ producer 1000000 verbosity config (Proxy :: Proxy IO) connectorState (dropBookEvs $ comparingEventHandler evsRef)
         link pthread
 
         threadDelay 5000000
@@ -182,7 +191,7 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
         assertEqual "Some events were not issued" [] ems
 
     , testCase "Full connector - Partial execution detection" $ do
-        config         <- mkMockConfig partialFillMockState undefined undefined
+        config         <- mkMockConfig partialFillMockState C.Silent undefined undefined
         evsRef         <- newIORef [ PlaceEv  (Just $ COID 123) -- before producer starts
                                    , PlaceEv  (Just $ COID 456)
                                    , PlaceEv  (Just $ COID 789)
@@ -199,7 +208,7 @@ tests _ _ getConfig = testGroup " Coinbene Connector Tests"
                                    , DoneEv   (Just $ COID 789)
                                    ]
 
-        (producer, executor, terminator) <- coinbeneInit 1000000 config (Proxy :: Proxy IO) (dropBookEvs $ comparingEventHandler evsRef)
+        (producer, executor, terminator) <- coinbeneInit 1000000 verbosity config (Proxy :: Proxy IO) (dropBookEvs $ comparingEventHandler evsRef)
 
         -- calling the executors before starting the producer guarantees the orders have been
         -- placed (and are in the connector's state) before the producer starts
@@ -237,7 +246,7 @@ safeHead :: [a] -> Maybe a
 safeHead []     = Nothing
 safeHead (x:xs) = Just x
 --------------------------------------------------------------------------------
-newtype MockCoinbene p v = MC (IORef (ExchangeMockState p v))
+data MockCoinbene p v = MC (IORef (ExchangeMockState p v)) C.Verbosity
 
 data ExchangeMockState p v =
     EMS { books    :: [C.QuoteBook p v]
@@ -260,45 +269,62 @@ data Request p v
 ----------------------------------------
 instance forall p v . (Show p, Show v, C.Coin p, C.Coin v) => C.Exchange (MockCoinbene p v) IO where
 
-    placeLimit (MC ref) sd p v = do
-        -- putStrLn "PLACELIMIT"
+    -- FIX ME! "DRY" violations gone wild!
+    placeLimit (MC ref verbosity) sd p v = do
+        traceOn (verbosity >= C.Verbose)
+            "PLACELIMIT"
+            (return ())
         oid <- atomicModifyIORef' ref (update sd p v)
-        -- putStrLn $ "Placing: " <> show (NewLimit sd (from p) (from v) oid :: Request p v)
-        return oid
+        traceOn (verbosity >= C.Verbose)
+            ("Placing: " <> show (NewLimit sd (from p) (from v) oid :: Request p v))
+            (return oid)
       where
         update sd p v ems =
             let oid = C.OrderID $ ":oid:" <> show (nextOID ems)
              in (ems {nextOID = nextOID ems + 10, reqs = NewLimit sd (from p) (from v) oid : reqs ems}, oid)
 
-    getBook (MC ref) _ _ = do
-        -- putStrLn "GETBOOK"
+    getBook (MC ref verbosity) _ _ = do
+        traceOn (verbosity >= C.Verbose)
+            "GETBOOK"
+            (return ())
         bk' <- atomicModifyIORef' ref update
-        -- putStrLn $ "Returning orderbook converted `from`: " <> show bk'
-        return $ from $ bk'
+        traceOn (verbosity >= C.Deafening)
+            ("Returning orderbook converted `from`: " <> show bk')
+            (return $ from $ bk')
       where
         update ems = (ems {books = tail (books ems)}, head (books ems))
 
-    cancel (MC ref) oid = do
-        -- putStrLn "CANCEL"
+    cancel (MC ref verbosity) oid = do
+        traceOn (verbosity >= C.Verbose)
+            "CANCEL"
+            (return ())
         oid <- atomicModifyIORef' ref (update oid)
-        -- putStrLn $ "Cancelling: " <> show oid
-        return oid
+        traceOn (verbosity >= C.Verbose)
+            ("Cancelling: " <> show oid)
+            (return oid)
       where
         update oid ems = (ems {reqs = Cancel oid : reqs ems}, oid)
 
-    getOpenOrders (MC ref) _ _ = do
-        -- putStrLn "GET OPEN ORDERS"
+    getOpenOrders (MC ref verbosity) _ _ = do
+        traceOn (verbosity >= C.Verbose)
+            "GET OPEN ORDERS"
+            (return ())
         infos <- atomicModifyIORef' ref update
-        -- putStrLn $ "Open orders: " <> show infos
-        return infos
+        traceOn (verbosity >= C.Verbose)
+            ("Open orders: " <> show infos)
+            (return infos)
+
       where
         update ems = (ems {getOpens = tail (getOpens ems)}, head (getOpens ems))
 
-    getOrderInfo (MC ref) oid = do
-        -- putStrLn $ "GET ORDER INFO - " <> show oid
+    getOrderInfo (MC ref verbosity) oid = do
+        traceOn (verbosity >= C.Verbose)
+            ("GET ORDER INFO - " <> show oid)
+            (return ())
         info <- atomicModifyIORef' ref update
-        -- putStrLn $ "Order Info: " <> show info
-        return info
+        traceOn (verbosity >= C.Verbose)
+            ("Order Info: " <> show info)
+            (return info)
       where
         update ems = if (C.orderID $ head $ getInfos ems) == oid
             then (ems {getInfos = tail (getInfos ems)}, head (getInfos ems))

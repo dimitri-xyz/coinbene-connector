@@ -26,20 +26,20 @@ coinbeneInit
     , (ToFromCB p p'), (ToFromCB v v')
     , ToFromCB (QuoteBook p v q c) (C.QuoteBook p' v')
     )
-    => Int -> config -> Proxy m -> Handler (TradingEv p v q c)
+    => Int -> C.Verbosity -> config -> Proxy m -> Handler (TradingEv p v q c)
     -> IO (Producer config p v q c, Executor config p v, Terminator config)
 
-coinbeneInit interval config proxy fireEvents = do
+coinbeneInit interval verbosity config proxy fireEvents = do
     connectorState <- newTVarIO emptyCoinbeneConnector
-    return  ( producer interval config proxy connectorState fireEvents
-            , executor          config proxy connectorState fireEvents
-            , terminator        config proxy connectorState fireEvents)
+    return  ( producer interval verbosity config proxy connectorState fireEvents
+            , executor          verbosity config proxy connectorState fireEvents
+            , terminator        verbosity config proxy connectorState fireEvents)
 
-getCoinbeneConfig :: IO Coinbene
-getCoinbeneConfig = do
+getCoinbeneConfig :: C.Verbosity -> IO Coinbene
+getCoinbeneConfig verbosity = do
         apiid  <- getEnv "COINBENE_API_ID"
         apikey <- getEnv "COINBENE_API_KEY"
         manager <- newManager tlsManagerSettings
-        return $ Coinbene manager (C.API_ID apiid) (C.API_KEY apikey)
+        return $ Coinbene manager (C.API_ID apiid) (C.API_KEY apikey) verbosity
 
 

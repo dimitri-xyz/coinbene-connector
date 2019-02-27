@@ -22,6 +22,11 @@ import           Control.Concurrent.STM.TVar
 import qualified Coinbene as C
 import           Market.Interface
 import           Market.Coins
+import           Debug.Trace
+
+---------------------------------------
+traceOn :: Bool -> String -> a -> a
+traceOn pred msg val =  if pred then trace msg val else val
 
 ---------------------------------------
 type Producer   config p v q c = IO ()

@@ -30,9 +30,9 @@ producer
         , (ToFromCB p p'), (ToFromCB v v')
         , ToFromCB (QuoteBook p v q c) (C.QuoteBook p' v')
         )
-    => Int -> config -> Proxy m -> TVar CoinbeneConnector -> Handler (TradingEv p v q c)
+    => Int -> C.Verbosity -> config -> Proxy m -> TVar CoinbeneConnector -> Handler (TradingEv p v q c)
     -> Producer config p v q c
-producer interval config proxy state handler = do
+producer interval verbosity config proxy state handler = do
     bkThread <- async bookThread
     link bkThread
     finally detectThread (cancel bkThread) -- This thread must cancel the inner bookThread if it receives an exception.
@@ -62,13 +62,19 @@ producer interval config proxy state handler = do
 
             closePairs <- atomicallyUpdateConnector (updateIfNewer newInfo oid (updateClose mcoid newInfo)) state
 
-            -- putStrLn $ "{{{{{ orders to be closed {{{{{" <> show (fst <$> closePairs) <> "}}}}}}}}}}"
+            traceOn
+                (verbosity >= C.Verbose)
+                ("orders to be closed: " <> show (fst <$> closePairs) )
+                (return ())
 
             dispatch $ concat (snd <$> closePairs)
             forM_ (fst <$> closePairs) (\oid -> atomicallyUpdateConnector (removeEntry oid) state)
 
-            -- endState <- readTVarIO state
-            -- putStrLn $ "<<<<< state at end of cycle <<<<<" <> show endState <> ">>>>>>>>>>"
+            endState <- readTVarIO state
+            traceOn
+                (verbosity >= C.Deafening)
+                ("state at end of cycle <<< " <> show endState <> " >>>")
+                (return ())
 
         threadDelay interval
 
