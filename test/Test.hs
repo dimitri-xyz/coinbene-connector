@@ -11,7 +11,6 @@ import           Data.Proxy
 import           Data.IORef
 import           Control.Monad.State
 import           Control.Monad.Time
--- import           System.IO                    (hPutStrLn, stderr)
 import           Control.Concurrent           (threadDelay)
 import           Control.Concurrent.Async     (async, link, cancel)
 import           Control.Concurrent.STM.TVar  (newTVarIO, readTVarIO)
@@ -110,7 +109,7 @@ tests verbosity _ _ getConfig = testGroup " Coinbene Connector Tests"
         config         <- getConfig
         connectorState <- newTVarIO emptyCoinbeneConnector
         executor verbosity config (Proxy :: Proxy IO) connectorState (\ev -> traceOn (verbosity >= C.Verbose) "order placed!" (return ()) )
-                            (PlaceLimit Ask (Price 19000 :: Price p) (Vol 0.002 :: Vol v) (Just $ COID 0))
+                            (PlaceLimit Ask (Price 99000 :: Price p) (Vol 0.002 :: Vol v) (Just $ COID 0))
         executor verbosity config (Proxy :: Proxy IO) connectorState undefined
                             ((CancelLimit $ COID 0) :: Action p v)
 
