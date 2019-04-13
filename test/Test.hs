@@ -4,6 +4,19 @@
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE FlexibleContexts      #-}
 
+{-# LANGUAGE CPP #-}
+
+#ifdef ETHEREUM
+#define MACRO_CURRENCY     ETH
+#define MACRO_MARKET_NAME  "ethbrl"
+#define MACRO_TEST_VOL     0.01
+#else
+#define MACRO_CURRENCY     BTC
+#define MACRO_MARKET_NAME  "btcbrl"
+#define MACRO_TEST_VOL     0.002
+#endif
+
+
 module Main where
 
 import           Data.Maybe                   (fromMaybe)
@@ -28,7 +41,7 @@ import           Coinbene.Executor
 import           Coinbene.Producer
 import           Coinbene.Connector
 
-import           Market.Coins (BTC(..), USD(..), BRL(..), LTC(..))
+import           Market.Coins (BTC(..), USD(..), BRL(..), LTC(..), ETH(..))
 
 import qualified Coinbene as C
 import           Coinbene (API_ID(..), API_KEY(..), qbAsks, qbBids, AskQuote(..), BidQuote(..))
@@ -61,7 +74,7 @@ main = defaultMainWithIngredients ings $
         (tests
             C.Silent -- verbosity level for connector itself
             (Proxy :: Proxy (Price BRL))
-            (Proxy :: Proxy (Vol BTC)))
+            (Proxy :: Proxy (Vol MACRO_CURRENCY)))
   where
     ings = includingOptions
         [ (Option (Proxy :: Proxy API_ID))
@@ -72,7 +85,7 @@ main = defaultMainWithIngredients ings $
         manager <- newManager tlsManagerSettings
         return $ Coinbene manager apiid apikey verbosity
 
-mkMockConfig :: ExchangeMockState C.BRL C.BTC -> C.Verbosity -> id -> key -> IO (MockCoinbene C.BRL C.BTC)
+mkMockConfig :: ExchangeMockState C.BRL C.MACRO_CURRENCY -> C.Verbosity -> id -> key -> IO (MockCoinbene C.BRL C.MACRO_CURRENCY)
 mkMockConfig initialExchangeMockState verbosity _ _ = do
     bks <- newIORef initialExchangeMockState
     return (MC bks verbosity)
@@ -91,7 +104,8 @@ corresponding instance for testing.
 tests :: forall config p v q c p' v'.
       (C.Exchange config IO, Coin p, Coin v, C.Coin p', C.Coin v', Num p', Num v', ToFromCB p p', ToFromCB v v')
       => C.Verbosity -> Proxy (Price p) -> Proxy (Vol v) -> IO config -> TestTree
-tests verbosity _ _ getConfig = testGroup " Coinbene Connector Tests"
+tests verbosity _ _ getConfig = testGroup
+    (" Coinbene Connector Tests for " <> MACRO_MARKET_NAME <> ". Use compiler flags for other markets.")
     [ testCase "Executor - PlaceLimit test" $ do
         -- "Despite it being an IO action, the resource it returns
         -- will be acquired only once and shared across all the tests in the tree."
@@ -103,13 +117,13 @@ tests verbosity _ _ getConfig = testGroup " Coinbene Connector Tests"
             (Proxy :: Proxy IO)
             connectorState
             (\_ -> return ()) -- no event firing
-            (PlaceLimit Ask (Price 22000 :: Price p) (Vol 0.002 :: Vol v) Nothing)
+            (PlaceLimit Ask (Price 97000 :: Price p) (Vol MACRO_TEST_VOL :: Vol v) Nothing)
 
     , testCase "Executor - Place then CancelLimit test" $ do
         config         <- getConfig
         connectorState <- newTVarIO emptyCoinbeneConnector
         executor verbosity config (Proxy :: Proxy IO) connectorState (\ev -> traceOn (verbosity >= C.Verbose) "order placed!" (return ()) )
-                            (PlaceLimit Ask (Price 99000 :: Price p) (Vol 0.002 :: Vol v) (Just $ COID 0))
+                            (PlaceLimit Ask (Price 99000 :: Price p) (Vol MACRO_TEST_VOL :: Vol v) (Just $ COID 0))
         executor verbosity config (Proxy :: Proxy IO) connectorState undefined
                             ((CancelLimit $ COID 0) :: Action p v)
 
@@ -401,7 +415,7 @@ bk3 = QuoteBook {asks = [], bids = [], counter = ()}
 
 unfilled123 =
     C.LimitOrder
-    { C.market     = "btcbrl"
+    { C.market     = MACRO_MARKET_NAME
     , C.oSide      = C.Ask
     , C.limitPrice = C.Price 99000
     , C.limitVol   = C.Vol   0.005
@@ -429,7 +443,7 @@ partiallyCanceled123 = partiallyFilled123 {C.status = C.Canceled}
 ----------------------------------------
 unfilled456 =
     C.LimitOrder
-    { C.market     = "btcbrl"
+    { C.market     = MACRO_MARKET_NAME
     , C.oSide      = C.Bid
     , C.limitPrice = C.Price 77
     , C.limitVol   = C.Vol   0.003
@@ -453,7 +467,7 @@ done456 =
 ----------------------------------------
 unfilled789 =
     C.LimitOrder
-    { C.market     = "btcbrl"
+    { C.market     = MACRO_MARKET_NAME
     , C.oSide      = C.Ask
     , C.limitPrice = C.Price 88000
     , C.limitVol   = C.Vol   0.004
