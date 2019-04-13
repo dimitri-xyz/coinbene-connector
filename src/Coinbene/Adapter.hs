@@ -82,6 +82,10 @@ instance ToFromCB LTC C.LTC where
     toCB   a = realToFrac a
     fromCB b = realToFrac b
 
+instance ToFromCB ETH C.ETH where
+    toCB   a = realToFrac a
+    fromCB b = realToFrac b
+
 ----------
 instance (ToFromCB p p', ToFromCB v v') => ToFromCB (Quote p v ()) (C.AskQuote p' v') where
     toCB   = undefined
