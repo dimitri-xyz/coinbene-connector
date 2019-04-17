@@ -1,7 +1,16 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts    #-}
 
-module Coinbene.Connector where
+module Coinbene.Connector
+    ( C.Coinbene(..)
+    , C.API_ID(..)
+    , C.API_KEY(..)
+    , C.Verbosity(..)
+
+    , coinbeneInit
+    , getCoinbeneConfig
+
+    ) where
 
 import           Data.Proxy
 import           Data.Hashable
