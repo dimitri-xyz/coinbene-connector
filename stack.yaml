@@ -2,7 +2,7 @@ packages:
 - '.'
 - 'dep/coinbene-api'
 - 'dep/market-model'
-- '../market-interface'  # FIX ME! this should be a 'dep/...'
+- 'dep/market-interface'
 
 
 - location:
