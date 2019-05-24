@@ -117,13 +117,13 @@ tests verbosity _ _ getConfig = testGroup
             (Proxy :: Proxy IO)
             connectorState
             (\_ -> return ()) -- no event firing
-            (PlaceLimit Ask (Price 97000 :: Price p) (Vol MACRO_TEST_VOL :: Vol v) Nothing)
+            (PlaceLimit Ask (Price 97000 :: Price p) (Vol MACRO_TEST_VOL :: Vol v) (COID 0))
 
     , testCase "Executor - Place then CancelLimit test" $ do
         config         <- getConfig
         connectorState <- newTVarIO emptyCoinbeneConnector
         executor verbosity config (Proxy :: Proxy IO) connectorState (\ev -> traceOn (verbosity >= C.Verbose) "order placed!" (return ()) )
-                            (PlaceLimit Ask (Price 99000 :: Price p) (Vol MACRO_TEST_VOL :: Vol v) (Just $ COID 0))
+                            (PlaceLimit Ask (Price 99000 :: Price p) (Vol MACRO_TEST_VOL :: Vol v) (COID 0))
         executor verbosity config (Proxy :: Proxy IO) connectorState undefined
                             ((CancelLimit $ COID 0) :: Action p v)
 
@@ -147,13 +147,13 @@ tests verbosity _ _ getConfig = testGroup
     , testCase "Producer - cancellation detection" $ do
         config         <- mkMockConfig defaultExchangeState C.Silent undefined undefined
         connectorState <- newTVarIO emptyCoinbeneConnector
-        evsRef         <- newIORef [ PlaceEv  (Just $ COID 123)
-                                   , CancelEv (Just $ COID 123) :: TradingEv p v () ()
+        evsRef         <- newIORef [ PlaceEv  (COID 123)
+                                   , CancelEv (COID 123) :: TradingEv p v () ()
                                    ]
         -- calling the executors before starting the producer guarantees the orders have been
         -- placed (and are in the connector's state) before the producer starts
         executor verbosity config (Proxy :: Proxy IO) connectorState (comparingEventHandler evsRef)
-                            (PlaceLimit Ask (Price 99000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 123))
+                            (PlaceLimit Ask (Price 99000 :: Price p) (Vol 0.005 :: Vol v) (COID 123))
         pthread <- async $ producer 1000000 verbosity config (Proxy :: Proxy IO) connectorState (dropBookEvs $ comparingEventHandler evsRef)
         link pthread
 
@@ -166,30 +166,30 @@ tests verbosity _ _ getConfig = testGroup
     , testCase "Producer - Partial execution detection" $ do
         config         <- mkMockConfig partialFillMockState C.Silent undefined undefined
         connectorState <- newTVarIO emptyCoinbeneConnector
-        evsRef         <- newIORef [ PlaceEv  (Just $ COID 123) -- before producer starts
-                                   , PlaceEv  (Just $ COID 456)
-                                   , PlaceEv  (Just $ COID 789)
+        evsRef         <- newIORef [ PlaceEv  (COID 123) -- before producer starts
+                                   , PlaceEv  (COID 456)
+                                   , PlaceEv  (COID 789)
 
-                                   , FillsEv  [FillEv Ask (Price 120000) (Vol 0.001) (Just $ COID 789)] -- first cycle
-                                   , FillsEv  [FillEv Bid (Price     77) (Vol 0.003) (Just $ COID 456)]
-                                   , DoneEv   (Just $ COID 456) :: TradingEv p v () ()
+                                   , FillsEv  [FillEv Ask (Price 120000) (Vol 0.001) (COID 789)] -- first cycle
+                                   , FillsEv  [FillEv Bid (Price     77) (Vol 0.003) (COID 456)]
+                                   , DoneEv   (COID 456) :: TradingEv p v () ()
 
-                                   , FillsEv  [FillEv Ask (Price  99000) (Vol 0.002) (Just $ COID 123)] -- second cycle
+                                   , FillsEv  [FillEv Ask (Price  99000) (Vol 0.002) (COID 123)] -- second cycle
 
-                                   , CancelEv (Just $ COID 123) -- third cycle
+                                   , CancelEv (COID 123) -- third cycle
 
-                                   , FillsEv  [FillEv Ask (Price  88000) (Vol 0.003) (Just $ COID 789)] -- 4th cycle
-                                   , DoneEv   (Just $ COID 789)
+                                   , FillsEv  [FillEv Ask (Price  88000) (Vol 0.003) (COID 789)] -- 4th cycle
+                                   , DoneEv   (COID 789)
                                    ]
 
         -- calling the executors before starting the producer guarantees the orders have been
         -- placed (and are in the connector's state) before the producer starts
         executor verbosity config (Proxy :: Proxy IO) connectorState (comparingEventHandler evsRef)
-                            (PlaceLimit Ask (Price 99000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 123))
+                            (PlaceLimit Ask (Price 99000 :: Price p) (Vol 0.005 :: Vol v) (COID 123))
         executor verbosity config (Proxy :: Proxy IO) connectorState (comparingEventHandler evsRef)
-                            (PlaceLimit Bid (Price    77 :: Price p) (Vol 0.003 :: Vol v) (Just $ COID 456))
+                            (PlaceLimit Bid (Price    77 :: Price p) (Vol 0.003 :: Vol v) (COID 456))
         executor verbosity config (Proxy :: Proxy IO) connectorState (comparingEventHandler evsRef)
-                            (PlaceLimit Ask (Price 88000 :: Price p) (Vol 0.004 :: Vol v) (Just $ COID 789))
+                            (PlaceLimit Ask (Price 88000 :: Price p) (Vol 0.004 :: Vol v) (COID 789))
 
         pthread <- async $ producer 1000000 verbosity config (Proxy :: Proxy IO) connectorState (dropBookEvs $ comparingEventHandler evsRef)
         link pthread
@@ -205,29 +205,29 @@ tests verbosity _ _ getConfig = testGroup
 
     , testCase "Full connector - Partial execution detection" $ do
         config         <- mkMockConfig partialFillMockState C.Silent undefined undefined
-        evsRef         <- newIORef [ PlaceEv  (Just $ COID 123) -- before producer starts
-                                   , PlaceEv  (Just $ COID 456)
-                                   , PlaceEv  (Just $ COID 789)
+        evsRef         <- newIORef [ PlaceEv  (COID 123) -- before producer starts
+                                   , PlaceEv  (COID 456)
+                                   , PlaceEv  (COID 789)
 
-                                   , FillsEv  [FillEv Ask (Price 120000) (Vol 0.001) (Just $ COID 789)] -- first cycle
-                                   , FillsEv  [FillEv Bid (Price     77) (Vol 0.003) (Just $ COID 456)]
-                                   , DoneEv   (Just $ COID 456) :: TradingEv p v () ()
+                                   , FillsEv  [FillEv Ask (Price 120000) (Vol 0.001) (COID 789)] -- first cycle
+                                   , FillsEv  [FillEv Bid (Price     77) (Vol 0.003) (COID 456)]
+                                   , DoneEv   (COID 456) :: TradingEv p v () ()
 
-                                   , FillsEv  [FillEv Ask (Price  99000) (Vol 0.002) (Just $ COID 123)] -- second cycle
+                                   , FillsEv  [FillEv Ask (Price  99000) (Vol 0.002) (COID 123)] -- second cycle
 
-                                   , CancelEv (Just $ COID 123) -- third cycle
+                                   , CancelEv (COID 123) -- third cycle
 
-                                   , FillsEv  [FillEv Ask (Price  88000) (Vol 0.003) (Just $ COID 789)] -- 4th cycle
-                                   , DoneEv   (Just $ COID 789)
+                                   , FillsEv  [FillEv Ask (Price  88000) (Vol 0.003) (COID 789)] -- 4th cycle
+                                   , DoneEv   (COID 789)
                                    ]
 
         (producer, executor, terminator) <- coinbeneInit 1000000 verbosity config (Proxy :: Proxy IO) (dropBookEvs $ comparingEventHandler evsRef)
 
         -- calling the executors before starting the producer guarantees the orders have been
         -- placed (and are in the connector's state) before the producer starts
-        executor (PlaceLimit Ask (Price 99000 :: Price p) (Vol 0.005 :: Vol v) (Just $ COID 123))
-        executor (PlaceLimit Bid (Price    77 :: Price p) (Vol 0.003 :: Vol v) (Just $ COID 456))
-        executor (PlaceLimit Ask (Price 88000 :: Price p) (Vol 0.004 :: Vol v) (Just $ COID 789))
+        executor (PlaceLimit Ask (Price 99000 :: Price p) (Vol 0.005 :: Vol v) (COID 123))
+        executor (PlaceLimit Bid (Price    77 :: Price p) (Vol 0.003 :: Vol v) (COID 456))
+        executor (PlaceLimit Ask (Price 88000 :: Price p) (Vol 0.004 :: Vol v) (COID 789))
 
         pthread <- async $ producer
         link pthread

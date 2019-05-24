@@ -1,10 +1,10 @@
 ### Dispatching `BookEv` events
 
-These events does not change the state of the connector. We will simply use a separate thread to continuously poll the exchange and fire these events.
+These events do not change the state of the connector. We will simply use a separate thread to continuously poll the exchange and fire these events.
 
 ### Dispatching `PlaceEv` events
 
-It seems natural that the Executor itself should issue `PlaceEv` events immediately after it received a corresponding OrderID. Unfortunately, doing that is is a little tricky. The problem is that the executor and producer work on separate execution threads and the framework guarantees that a `PlaceEv` will happen before any corresponding `FillsEv` or other event.
+It seems natural that the Executor itself should issue `PlaceEv` events immediately after it received a corresponding OrderID. Unfortunately, doing that is a little tricky. The problem is that the executor and producer work on separate execution threads and the framework guarantees that a `PlaceEv` will happen before any corresponding `FillsEv` or other event.
 
 Updates to the state are done using the STM monad, but firing of events is not included in this critical section. The executor has two choices:
 

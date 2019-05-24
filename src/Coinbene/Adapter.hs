@@ -121,58 +121,54 @@ data ConnectorOrderInfo =
     } deriving (Show, Eq)
 
 --------------------------------------------------------------------------------
-data MainAuxMap k1 k2 v = MainAuxMap { mainM :: HashMap k1 (Maybe k2, v), auxM :: HashMap k2 k1 } deriving Show
+data MainAuxMap k1 k2 v = MainAuxMap { mainM :: HashMap k1 (k2, v), auxM :: HashMap k2 k1 } deriving Show
 
 emptyM :: MainAuxMap k1 k2 v
-emptyM = MainAuxMap { mainM = empty :: HashMap k1 (Maybe k2, v), auxM = empty :: HashMap k2 k1 }
+emptyM = MainAuxMap { mainM = empty :: HashMap k1 (k2, v), auxM = empty :: HashMap k2 k1 }
 
-lookupMain :: (Eq k1, Hashable k1, Eq k2, Hashable k2) => k1 -> MainAuxMap k1 k2 v -> Maybe (Maybe k2, v)
+lookupMain :: (Eq k1, Hashable k1, Eq k2, Hashable k2) => k1 -> MainAuxMap k1 k2 v -> Maybe (k2, v)
 lookupMain k1 map = lookup k1 (mainM map) -- does NOT check for inconsistency
 
-lookupAux  :: (Eq k1, Hashable k1, Eq k2, Hashable k2) => k2 -> MainAuxMap k1 k2 v -> Maybe (      k1, v)
+lookupAux  :: (Eq k1, Hashable k1, Eq k2, Hashable k2) => k2 -> MainAuxMap k1 k2 v -> Maybe (k1, v)
 lookupAux k2 map =
     case lookup k2 (auxM map) of
         Nothing -> Nothing
         Just k1 -> case lookupMain k1 map of
-            Nothing        -> error "lookupAux - missing entry for primary key"
-            Just (mk2', v) -> if mk2' == Just k2
+            Nothing       -> error "lookupAux - missing entry for primary key"
+            Just (k2', v) -> if k2' == k2
                 then Just (k1, v)
                 else error "lookupAux - main entry linking back to wrong secondary key"
 
 -- | insertMain inserts a new association
--- if k1 does not exist then k2 should not exist or be `Nothing`
+-- if k1 does not exist then k2 should not exist
 -- if k1 exist then k2 should match existing value
 -- otherwise error
-insertMain :: (Eq k1, Hashable k1, Eq k2, Hashable k2) => k1 -> Maybe k2 -> v -> MainAuxMap k1 k2 v -> MainAuxMap k1 k2 v
-insertMain k1 mk2 v map = case lookupMain k1 map of
-    Nothing -> case mk2 of
-                Nothing -> insertOverwritePair k1 mk2 v map -- new pair (k2 = Nothing)
-                Just k2 -> case lookupAux k2 map of
-                    Nothing -> insertOverwritePair k1 mk2 v map -- new pair, previously unused k2
+insertMain :: (Eq k1, Hashable k1, Eq k2, Hashable k2) => k1 -> k2 -> v -> MainAuxMap k1 k2 v -> MainAuxMap k1 k2 v
+insertMain k1 k2 v map = case lookupMain k1 map of
+    Nothing -> case lookupAux k2 map of
+                    Nothing -> insertOverwritePair k1 k2 v map -- new pair, previously unused k2
                     Just _  -> error "insert - cannot insert in map: cannot create entry with already used secondary key"
-    Just (mk2', _) -> if mk2 == mk2'
+    Just (k2', _) -> if k2 == k2'
             -- both exist, and are associated to each other, overwrite
-            then insertOverwritePair k1 mk2 v map
+            then insertOverwritePair k1 k2 v map
             -- both exist, but they are not associated to each other
             else error "insert - cannot insert keys in map: cannot overwrite entry with different secondary key"
   where
-    insertOverwritePair k1  Nothing  v map = map {mainM = insert k1 (Nothing, v) (mainM map)}
-    insertOverwritePair k1 (Just k2) v map = map {mainM = insert k1 (Just k2, v) (mainM map), auxM = insert k2 k1 (auxM map)}
+    insertOverwritePair k1 k2 v map = map {mainM = insert k1 (k2, v) (mainM map), auxM = insert k2 k1 (auxM map)}
 
 -- | deletes corresponding entry from map, if present
 deleteMain :: (Eq k1, Hashable k1, Eq k2, Hashable k2) => k1 -> MainAuxMap k1 k2 v -> MainAuxMap k1 k2 v
 deleteMain k1 map =
     case lookupMain k1 map of
         Nothing           -> map
-        Just (Nothing, v) -> map {mainM = delete k1 (mainM map)}
-        Just (Just k2, v) -> map {mainM = delete k1 (mainM map), auxM = delete k2 (auxM map)}
+        Just (k2, v) -> map {mainM = delete k1 (mainM map), auxM = delete k2 (auxM map)}
 
 deleteAux  :: forall k1 k2 v. (Eq k1, Hashable k1, Eq k2, Hashable k2) => k2 -> MainAuxMap k1 k2 v -> MainAuxMap k1 k2 v
 deleteAux k2 map = case lookupAux k2 map of
     Nothing      -> map
     Just (k1, _) -> deleteMain k1 map
 
-keys :: MainAuxMap k1 k2 v -> [(k1, Maybe k2)]
+keys :: MainAuxMap k1 k2 v -> [(k1, k2)]
 keys map = toList (fst <$> mainM map)
 
 adjustMain :: (Eq k1, Hashable k1) => (v -> v) -> k1 -> MainAuxMap k1 k2 v -> MainAuxMap k1 k2 v

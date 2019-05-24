@@ -111,8 +111,8 @@ removeEntry oid = do
 
 --------------------------------------------------------------------------------
 -- return events/updates due to fill events only
-updateFills :: (Coin p, Coin v) => Maybe ClientOID -> C.OrderInfo -> State ConnectorOrderInfo [TradingEv p v q c]
-updateFills mcoid newInfo = do
+updateFills :: (Coin p, Coin v) => ClientOID -> C.OrderInfo -> State ConnectorOrderInfo [TradingEv p v q c]
+updateFills coid newInfo = do
     curInfo <- get
     if C.filledVol newInfo <= filledVol curInfo
         then return []
@@ -130,16 +130,16 @@ updateFills mcoid newInfo = do
                                         Just (p, _) -> p -- may have immediately executed before sitting on book (but previous executed vol is zero)
                                         Nothing     -> error "Call to get order info did not return average price, but order has executed"
 
-            return [FillsEv [FillEv (fromCB $ C.oSide newInfo) (realToFrac fillPrice) (realToFrac fillVol) mcoid]]
+            return [FillsEv [FillEv (fromCB $ C.oSide newInfo) (realToFrac fillPrice) (realToFrac fillVol) coid]]
 
 
 -- return events/oids of orders that have been `CancelEv` or `DoneEv` (only)
-updateClose :: (Coin p, Coin v) => Maybe ClientOID -> C.OrderInfo -> State ConnectorOrderInfo [(C.OrderID, [TradingEv p v q c])]
-updateClose mcoid newInfo = do
+updateClose :: (Coin p, Coin v) => ClientOID -> C.OrderInfo -> State ConnectorOrderInfo [(C.OrderID, [TradingEv p v q c])]
+updateClose coid newInfo = do
     let oid = C.orderID newInfo
     case C.status newInfo of
-        C.PartiallyCanceled -> return [(oid, [CancelEv mcoid])]
-        C.Canceled          -> return [(oid, [CancelEv mcoid])]
-        C.Filled            -> return [(oid, [DoneEv mcoid])]
+        C.PartiallyCanceled -> return [(oid, [CancelEv coid])]
+        C.Canceled          -> return [(oid, [CancelEv coid])]
+        C.Filled            -> return [(oid, [DoneEv   coid])]
         _                   -> return []
 

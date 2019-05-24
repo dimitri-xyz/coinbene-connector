@@ -26,22 +26,22 @@ executor
                                 )
     => C.Verbosity -> config -> Proxy m -> TVar CoinbeneConnector -> Handler (TradingEv p v q c)
     -> Executor config p v
-executor verbosity config proxy state handler (PlaceLimit sd price@(Price p) vol@(Vol v) mCOID) = do
+executor verbosity config proxy state handler (PlaceLimit sd price@(Price p) vol@(Vol v) cOID) = do
     oid <- intoIO $ ( (C.placeLimit config (toCB sd) (toCB price) (toCB vol) ) :: m C.OrderID )
     -- must fire event before updating connector state, see `doc/connector-architecture.md`
-    handler (PlaceEv mCOID)
-    insertNewOrderInConnectorState verbosity oid mCOID (toCB sd) (realToFrac p) (realToFrac v) state
+    handler (PlaceEv cOID)
+    insertNewOrderInConnectorState verbosity oid cOID (toCB sd) (realToFrac p) (realToFrac v) state
   where
     insertNewOrderInConnectorState
-        :: C.Verbosity -> C.OrderID -> Maybe ClientOID -> C.OrderSide -> C.Price Scientific -> C.Vol Scientific
+        :: C.Verbosity -> C.OrderID -> ClientOID -> C.OrderSide -> C.Price Scientific -> C.Vol Scientific
         -> TVar CoinbeneConnector -> IO ()
-    insertNewOrderInConnectorState verbosity oid mcoid sd p v connector =
-        atomically $ stateTVar state $ runState (insertOrder verbosity oid mcoid sd p v)
+    insertNewOrderInConnectorState verbosity oid coid sd p v connector =
+        atomically $ stateTVar state $ runState (insertOrder verbosity oid coid sd p v)
 
     insertOrder
-        :: C.Verbosity -> C.OrderID -> Maybe ClientOID -> C.OrderSide -> C.Price Scientific -> C.Vol Scientific
+        :: C.Verbosity -> C.OrderID -> ClientOID -> C.OrderSide -> C.Price Scientific -> C.Vol Scientific
         -> State CoinbeneConnector ()
-    insertOrder verbosity oid mcoid sd p v = do
+    insertOrder verbosity oid coid sd p v = do
         orderMap <- get
         let newOrder =
                 FillStatus
@@ -56,8 +56,8 @@ executor verbosity config proxy state handler (PlaceLimit sd price@(Price p) vol
                 }
         put $ traceOn
                 (verbosity >= C.Normal)
-                ("Pairing: " <> show oid <> " with " <> show mcoid)
-                (insertMain oid mcoid newOrder orderMap)
+                ("Pairing: " <> show oid <> " with " <> show coid)
+                (insertMain oid coid newOrder orderMap)
 
 executor verbosity config proxy state _handler (CancelLimit coid) = do
     moid <- lookupOID coid state
