@@ -66,7 +66,7 @@ instance ToFromCB a b => ToFromCB (Vol a) (C.Vol b) where
     fromCB (C.Vol b) = Vol (fromCB b)
 ----------
 
-instance ToFromCB USD C.USDT where
+instance ToFromCB USDT C.USDT where
     toCB   a = realToFrac a
     fromCB b = realToFrac b
 

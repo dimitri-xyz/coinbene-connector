@@ -41,7 +41,7 @@ import           Coinbene.Executor
 import           Coinbene.Producer
 import           Coinbene.Connector
 
-import           Market.Coins (BTC(..), USD(..), BRL(..), LTC(..), ETH(..))
+import           Market.Coins (BTC(..), USDT(..), BRL(..), LTC(..), ETH(..))
 
 import qualified Coinbene as C
 import           Coinbene (API_ID(..), API_KEY(..), qbAsks, qbBids, AskQuote(..), BidQuote(..))
