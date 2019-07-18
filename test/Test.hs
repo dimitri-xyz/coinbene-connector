@@ -71,10 +71,10 @@ main = defaultMainWithIngredients ings $
             (apiid  :: API_ID)
             (apikey :: API_KEY))
         (\_ -> return ())
-        (tests
+        ((tests :: Verbosity -> Proxy (Price BRL) -> Proxy (Vol MACRO_CURRENCY) -> IO C.Coinbene -> TestTree)
             C.Silent -- verbosity level for connector itself
-            (Proxy :: Proxy (Price BRL))
-            (Proxy :: Proxy (Vol MACRO_CURRENCY)))
+            Proxy
+            Proxy
   where
     ings = includingOptions
         [ (Option (Proxy :: Proxy API_ID))
