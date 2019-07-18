@@ -3,6 +3,7 @@
 
 module Coinbene.Connector
     ( C.Coinbene(..)
+    , C.CoinbeneFutures(..)
     , C.API_ID(..)
     , C.API_KEY(..)
     , C.Verbosity(..)

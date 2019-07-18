@@ -8,6 +8,7 @@
 module Coinbene.Adapter
     ( module Coinbene.Adapter
     , C.Coinbene(..)
+    , C.CoinbeneFutures(..)
     , C.HTTP
     , C.http
     ) where
@@ -175,3 +176,7 @@ adjustMain :: (Eq k1, Hashable k1) => (v -> v) -> k1 -> MainAuxMap k1 k2 v -> Ma
 adjustMain f k1 hmap =
     let f' (k, v) = (k, f v)
      in hmap {mainM = adjust f' k1 (mainM hmap)}
+
+
+----------------------------------------
+
