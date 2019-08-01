@@ -65,6 +65,37 @@ The executor thread may be continuously adding orders to the connector state. We
 and then only update the orders present in the snapshot (other orders may have to wait for the next polling cycle) but obviously we will *never* drop new orders by using stale state information in state updates.
 
 
+##### Trying to cancel an COID that no longer has a matching OrderID
+
+There is a race condition that may lead to this unusual condition. I would like to show that although this is unusual, it is not a bug in the connector. The connector still keeps the desired interface semantics despite this.
+
+Assume we have multiple connectors operating in multiple markets, say market 1 and market 2. We have the CoinBene connector running market 2. Consider a situation where an event happens in market 1 (or even from the producer in market 2, as executor and producer are not synchronized) that calls for the cancellation of what is believed to be a pending order in market 2.
+
+The connector keeps track of the association between ClientOID and OrderID for all orders that it has placed. But it does not do it forever as this would cause a space leak.
+
+Let's continue with cancellation request of a pending order. As this is a pending order (it was placed by this same connector in the past) when this event is triggered, the strategy will place a `CancelLimit` action on the executor's input queue. This action is placed on the executors input queue, but it is not yet executed. Again, the executor and producer are not synchronized. They are running on different thread.
+
+Here's the race condition: Before the `CancelLimit` action is executed, the producer thread discovers that the order has
+been fully filled. (Obviously, it is now impossible to cancel it. So, the cancellation request that is waiting in the executor's input queue will have no effect) The producer will fire at least 2 events:
+
+1. A FillsEv, for any volume that had not been executed up to now
+2. A DoneEv, for the fully filled order
+
+The problem is that, to avoid a space leak, as soon as the producer fires the `DoneEv` in (2). It will erase the association between the COID and the OrderID. However, the `CancelLimit` request is still pending at the executor when the link between the COID and the OrderID is deleted. So, later, when the executor starts to process the `CancelLimit` action, it will not find the OrderID it needs. At this point, it should just drop the request. This is simply a failed cancellation attempt.
+
+We will log this condition, to make sure it is visible. Also, it should be clear that we have to allow this condition. In other words:
+
+**The connector will NOT cause an error if there is a request to cancel an order with a clientOID that it has never heard about. It will simply ignore (and log) it**
+
+This allows for this race condition. However, it also will not cause errors (only log warnings) for situations when the COID has never been used. In other words, the corresponding order has never been placed. Rather than signaling to the strategy that there is an error (because an order with the corresponding COID has never been placed), the connector will just log that there is something weird and keep going. We cannot rely on the connector to catch this kind of strategy bug anymore.
+
+In theory, it would be possible to immediately do a lookup of the required OrderID. And put the cancellation request in the executors input queue already with the required OrderID (rather than with the ClientOID). That way, by the time the cancellation request gets to be executed, no more information is needed. However, this would need us to either:
+
+1. change the semantics of the cancellation actions to require an OrderID; or,
+2. trigger an immediate lookup and save of the orderID everytime a cancellation is put in the executor's input queue
+
+Both of these options are cumbersome and make the design more complicated. Furthermore, all this extra work will have no effect. The order can no longer be cancelled anyway. We really get no benefit.
+
 ---<<<<<<<<<<<<<<<<< DON'T BELIEVE ANYTHING BEYOND THIS POINT!!!!.... :-P
 
 

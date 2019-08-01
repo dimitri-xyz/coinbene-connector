@@ -75,6 +75,7 @@ main = defaultMainWithIngredients ings $
             C.Silent -- verbosity level for connector itself
             Proxy
             Proxy
+        )
   where
     ings = includingOptions
         [ (Option (Proxy :: Proxy API_ID))

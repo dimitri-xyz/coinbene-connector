@@ -62,8 +62,11 @@ executor verbosity config proxy state handler (PlaceLimit sd price@(Price p) vol
 executor verbosity config proxy state _handler (CancelLimit coid) = do
     moid <- lookupOID coid state
     case moid of
-        Nothing  -> error $ "executor - could not cancel order for ClientOID: "
-                            <> show coid <> " no matching OrderID."
+        Nothing  -> traceOn
+                        (verbosity >= C.Normal)
+                        ("executor - could not cancel order for ClientOID: " <> show coid <> " no matching OrderID.")
+                        -- FIX ME! The "if" is just forcing evaluation here to make sure this is logged
+                        (if coid == (-1) then error "ClientOID = -1" else return ())
         Just oid -> do
             intoIO ( C.cancel config oid :: m C.OrderID )
             return ()
